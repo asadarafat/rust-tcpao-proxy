@@ -123,7 +123,10 @@ pub fn configure_listener(
 
         let peer = SocketAddr::new(policy.peer_ip, policy.peer_port.unwrap_or(0));
         let key = policy_key_bytes(policy)?;
-        install_key(socket_fd, policy, peer, &key, false)?;
+        // At least one listener key must be active for the kernel to authenticate
+        // and send AO segments on accepted sessions.
+        let set_current = installed == 0;
+        install_key(socket_fd, policy, peer, &key, set_current)?;
         installed += 1;
     }
 
@@ -168,7 +171,17 @@ pub fn ensure_inbound_session_has_ao(socket_fd: RawFd, peer: SocketAddr) -> io::
         return Ok(());
     }
 
-    let info = get_ao_info(socket_fd)?;
+    let info = match get_ao_info(socket_fd) {
+        Ok(info) => info,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {
+            debug!(
+                peer = %peer,
+                "tcp-ao session info unavailable (ENOENT); continuing with best-effort verification"
+            );
+            return Ok(());
+        }
+        Err(err) => return Err(err),
+    };
     if info.ao_required() == 0 {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
