@@ -391,7 +391,9 @@ fn socket_addr_to_libc_storage(addr: SocketAddr) -> libc::sockaddr_storage {
         SocketAddr::V4(v4) => {
             let sin = libc::sockaddr_in {
                 sin_family: libc::AF_INET as u16,
-                sin_port: v4.port().to_be(),
+                // TCP-AO key matching on Linux currently does not support port
+                // criteria; sockaddr port must be 0 for TCP_AO_ADD_KEY.
+                sin_port: 0,
                 sin_addr: libc::in_addr {
                     s_addr: u32::from_ne_bytes(v4.ip().octets()),
                 },
@@ -408,7 +410,9 @@ fn socket_addr_to_libc_storage(addr: SocketAddr) -> libc::sockaddr_storage {
         SocketAddr::V6(v6) => {
             let sin6 = libc::sockaddr_in6 {
                 sin6_family: libc::AF_INET6 as u16,
-                sin6_port: v6.port().to_be(),
+                // TCP-AO key matching on Linux currently does not support port
+                // criteria; sockaddr port must be 0 for TCP_AO_ADD_KEY.
+                sin6_port: 0,
                 sin6_flowinfo: v6.flowinfo(),
                 sin6_addr: libc::in6_addr {
                     s6_addr: v6.ip().octets(),
