@@ -1,0 +1,4 @@
+[alias]
+xfmt = "fmt --all"
+xclippy = "clippy --all-targets --all-features -- -D warnings"
+xtest = "test --all-targets"

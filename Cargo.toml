@@ -1,0 +1,29 @@
+[package]
+name = "tcpao-proxy"
+version = "0.1.0"
+edition = "2021"
+license-file = "COMMERCIAL_LICENSE.md"
+publish = false
+
+[[bin]]
+name = "tcpao-proxy"
+path = "cmd/tcpao-proxy/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive", "env"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+tokio = { version = "1.42", features = ["macros", "rt-multi-thread", "net", "io-util", "time", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "json", "env-filter"] }
+thiserror = "2"
+socket2 = { version = "0.5", features = ["all"] }
+libc = "0.2"
+linux-raw-sys = { version = "0.11", features = ["net"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

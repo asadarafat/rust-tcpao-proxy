@@ -1,0 +1,23 @@
+[global]
+log_format = "json"
+idle_timeout_secs = 120
+tcp_keepalive = true
+keepalive_time_secs = 30
+keepalive_intvl_secs = 10
+keepalive_probes = 3
+
+[initiator]
+listen_plain = "127.0.0.1:5000"
+remote_ao = "10.0.0.2:1790"
+
+[terminator]
+listen_ao = "0.0.0.0:1790"
+forward_plain = "127.0.0.1:11019"
+
+[[ao_policy]]
+name = "bmp-peer-1"
+peer_ip = "10.0.0.2"
+peer_port = 1790
+keyid = 1
+mac_alg = "hmac-sha256"
+key_source = "env:TCPAO_KEY_BMP_PEER_1"
