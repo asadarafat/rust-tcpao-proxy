@@ -114,6 +114,12 @@ Terminator entrypoint responsibilities:
 4. Start `tcpao-proxy --mode terminator --config /etc/tcpao-proxy/config.toml`
 5. `wait -n` and terminate peer process on failure
 
+Entrypoint behavior details:
+
+- `tcpao-proxy` always starts.
+- App process starts only when `APP_CMD` is provided.
+- For topology bootstrap, `APP_CMD=sleep infinity` can be used to keep nodes running before wiring the real app startup command.
+
 ## 8. TCP-AO config templates
 
 Initiator template (`/etc/tcpao-proxy/initiator.toml.tmpl`):

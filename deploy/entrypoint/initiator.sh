@@ -9,7 +9,7 @@ REMOTE_AO="${REMOTE_AO:-}"
 PEER_IP="${PEER_IP:-}"
 PEER_PORT="${PEER_PORT:-}"
 KEY_ID="${KEY_ID:-1}"
-APP_CMD="${APP_CMD:-/usr/local/bin/gobgp-stunnel-startup.sh}"
+APP_CMD="${APP_CMD:-}"
 
 required_env() {
   local key="$1"
@@ -88,9 +88,15 @@ if [[ ! -f "$TEMPLATE_PATH" ]]; then
 fi
 render_config "$TEMPLATE_PATH" "$CONFIG_PATH"
 
-echo "[entrypoint] starting app command: $APP_CMD"
-bash -lc "$APP_CMD" &
-APP_PID=$!
+APP_STARTED=0
+if [[ -n "$APP_CMD" ]]; then
+  echo "[entrypoint] starting app command: $APP_CMD"
+  bash -lc "$APP_CMD" &
+  APP_PID=$!
+  APP_STARTED=1
+else
+  echo "[entrypoint] APP_CMD is empty; starting tcpao-proxy only"
+fi
 
 echo "[entrypoint] starting tcpao-proxy initiator with config $CONFIG_PATH"
 tcpao-proxy --mode initiator --config "$CONFIG_PATH" &
@@ -99,7 +105,11 @@ PROXY_PID=$!
 trap 'shutdown 143' INT TERM
 
 set +e
-wait -n "$APP_PID" "$PROXY_PID"
+if [[ "$APP_STARTED" -eq 1 ]]; then
+  wait -n "$APP_PID" "$PROXY_PID"
+else
+  wait "$PROXY_PID"
+fi
 status=$?
 set -e
 

@@ -11,7 +11,9 @@ topology:
         REMOTE_AO: 10.10.10.2:1790
         PEER_IP: 10.10.10.2
         PEER_PORT: "1790"
-        # Override APP_CMD based on the gobgp-stunnel image internals.
+        # Safe default keeps container up; replace with real app startup command.
+        APP_CMD: "sleep infinity"
+        # Example:
         # APP_CMD: "stunnel /etc/stunnel/stunnel.conf & gobgpd -f /etc/gobgp/gobgp.conf"
       exec:
         - ip addr add 10.10.10.1/30 dev eth1
@@ -27,7 +29,9 @@ topology:
         FORWARD_PLAIN: 127.0.0.1:11019
         PEER_IP: 10.10.10.1
         PEER_PORT: "1790"
-        # Override APP_CMD if your gobmp image needs explicit flags.
+        # Safe default keeps container up; replace with real app startup command.
+        APP_CMD: "sleep infinity"
+        # Example:
         # APP_CMD: "/gobmp --listen 127.0.0.1:11019"
       exec:
         - ip addr add 10.10.10.2/30 dev eth1

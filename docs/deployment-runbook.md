@@ -77,7 +77,12 @@ Terminator-specific:
 
 Optional:
 
-- `APP_CMD`: app startup command inside the image. Set this explicitly if base image defaults are not correct for your app packaging.
+- `APP_CMD`: app startup command inside the image.
+
+Notes:
+
+- In the provided topology, `APP_CMD` is set to `sleep infinity` by default to keep containers stable.
+- Replace `APP_CMD` with your real `gobgp-stunnel` / `gobmp-tls` startup command for full end-to-end app traffic.
 
 ## 5) containerlab deployment
 
