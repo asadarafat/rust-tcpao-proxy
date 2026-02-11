@@ -27,6 +27,12 @@ require_cmd() {
   command -v "$cmd" >/dev/null 2>&1 || fail "required command not found: $cmd"
 }
 
+is_listening_on_port() {
+  local container="$1"
+  local port="$2"
+  docker exec "$container" ss -ltnp 2>/dev/null | grep -Eq ":${port}[[:space:]]"
+}
+
 wait_for_listen_port() {
   local container="$1"
   local port="$2"
@@ -34,7 +40,7 @@ wait_for_listen_port() {
   local waited=0
 
   while (( waited < MAX_WAIT_SECS )); do
-    if docker exec "$container" ss -ltnp 2>/dev/null | grep -Eq ":${port}[[:space:]]"; then
+    if is_listening_on_port "$container" "$port"; then
       ok "$label is listening on :$port"
       return 0
     fi
@@ -50,19 +56,37 @@ start_terminator_backend_if_needed() {
   local term_container="$1"
   local forward_plain="$2"
   local forward_port="$3"
+  local backend_log="/tmp/tcpao-validation-backend.log"
+  local waited=0
 
-  if docker exec "$term_container" ss -ltnp 2>/dev/null | grep -Eq ":${forward_port}[[:space:]]"; then
+  if is_listening_on_port "$term_container" "$forward_port"; then
     ok "terminator backend already listening on :$forward_port"
     return 0
   fi
 
   step "no backend listener on $forward_plain; starting temporary /gobmp backend"
-  if ! docker exec "$term_container" bash -lc "test -x /gobmp"; then
-    fail "forward backend is not listening and /gobmp was not found in $term_container; set APP_CMD in topology or install a listener on $forward_plain"
+  if docker exec "$term_container" bash -lc "test -x /gobmp"; then
+    docker exec "$term_container" bash -lc "nohup /gobmp --listen $forward_plain >$backend_log 2>&1 &"
+  elif docker exec "$term_container" bash -lc "command -v gobmp >/dev/null 2>&1"; then
+    docker exec "$term_container" bash -lc "nohup gobmp --listen $forward_plain >$backend_log 2>&1 &"
+  else
+    fail "forward backend is not listening and gobmp binary was not found in $term_container; set APP_CMD in topology or install a listener on $forward_plain"
   fi
 
-  docker exec "$term_container" bash -lc "nohup /gobmp --listen $forward_plain >/tmp/gobmp-functional.log 2>&1 &"
-  wait_for_listen_port "$term_container" "$forward_port" "terminator backend"
+  while (( waited < MAX_WAIT_SECS )); do
+    if is_listening_on_port "$term_container" "$forward_port"; then
+      ok "terminator backend is listening on :$forward_port"
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  step "terminator backend failed to open :$forward_port; dumping diagnostics"
+  docker exec "$term_container" bash -lc "ss -ltnp || true"
+  docker exec "$term_container" bash -lc "ps -ef | grep -E '[g]obmp|tcpao-proxy' || true"
+  docker exec "$term_container" bash -lc "tail -n 120 $backend_log 2>/dev/null || true"
+  fail "temporary backend did not start on $forward_plain; set APP_CMD in topology to a working backend command"
 }
 
 inject_test_payload() {
