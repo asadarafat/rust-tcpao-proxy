@@ -19,11 +19,13 @@ use tcpao_proxy::tcpao::linux;
 const TEST_KEY_ENV: &str = "TCPAO_TEST_KEY";
 const TEST_KEY: &str = "tcpao-functional-key";
 const TEST_NO_AO_ENV: &str = "TCPAO_PROXY_TEST_NO_AO";
+const TEST_REQUIRE_AO_ENV: &str = "TCPAO_PROXY_TEST_REQUIRE_AO";
 
 #[test]
 fn simple_traffic_flows_through_two_tcpao_proxies() -> Result<(), Box<dyn Error>> {
     init_test_tracing();
 
+    let require_ao = env_flag(TEST_REQUIRE_AO_ENV);
     let no_ao_bypass = match linux::probe_tcpao_support() {
         Ok(()) => false,
         Err(err) => {
@@ -31,6 +33,13 @@ fn simple_traffic_flows_through_two_tcpao_proxies() -> Result<(), Box<dyn Error>
                 err.kind(),
                 io::ErrorKind::Unsupported | io::ErrorKind::PermissionDenied
             ) {
+                if require_ao {
+                    return Err(format!(
+                        "tcp-ao is required by {} but unavailable: {err}",
+                        TEST_REQUIRE_AO_ENV
+                    )
+                    .into());
+                }
                 eprintln!(
                     "tcp-ao unavailable in test host ({err}); enabling {} fallback",
                     TEST_NO_AO_ENV
@@ -239,4 +248,11 @@ fn init_test_tracing() {
         )
         .with_test_writer()
         .try_init();
+}
+
+fn env_flag(key: &str) -> bool {
+    matches!(
+        std::env::var(key).as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE")
+    )
 }

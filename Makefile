@@ -1,7 +1,7 @@
 CARGO ?= cargo
 CONFIG ?= config/example.toml
 
-.PHONY: tools doctor fmt lint test test-functional dry-run run-initiator run-terminator
+.PHONY: tools doctor fmt lint test test-functional test-functional-strict dry-run run-initiator run-terminator
 
 tools:
 	@set -e; \
@@ -32,7 +32,10 @@ test:
 	$(CARGO) test --all-targets
 
 test-functional:
-	$(CARGO) test --test functional_tcpao -- --nocapture
+	env -u TCPAO_PROXY_TEST_NO_AO $(CARGO) test --test functional_tcpao -- --nocapture
+
+test-functional-strict:
+	env -u TCPAO_PROXY_TEST_NO_AO TCPAO_PROXY_TEST_REQUIRE_AO=1 $(CARGO) test --test functional_tcpao -- --nocapture
 
 dry-run:
 	$(CARGO) run -- --mode initiator --config $(CONFIG) --dry-run
