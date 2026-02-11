@@ -1,3 +1,5 @@
+ARG BASE_IMAGE=ghcr.io/asadarafat/gobmp:v1.0.4-alpha-tls
+
 FROM rust:1-bookworm AS tcpao-builder
 WORKDIR /src
 COPY Cargo.toml rust-toolchain.toml ./
@@ -6,7 +8,6 @@ COPY cmd ./cmd
 COPY src ./src
 RUN cargo build --release
 
-ARG BASE_IMAGE=ghcr.io/asadarafat/gobmp:v1.0.4-alpha-tls
 FROM ${BASE_IMAGE}
 
 USER root
