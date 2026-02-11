@@ -16,9 +16,11 @@ Rust sidecar proxy scaffold for protecting the wire leg of BMP sessions with TCP
 
 ```bash
 make tools
+rustc --version
+cargo --version
 make doctor
-cargo build
-cargo run -- --mode initiator --config config/example.toml --dry-run
+make test
+make test-functional
 ```
 
 ## Tooling
@@ -27,6 +29,6 @@ cargo run -- --mode initiator --config config/example.toml --dry-run
 - `make lint` for clippy (`-D warnings`)
 - `make test` for unit tests
 - `make test-functional` for end-to-end traffic through two proxy instances (uses real TCP-AO when available; falls back to debug/test-only no-AO mode if kernel support/capability is unavailable; may require `CAP_NET_ADMIN`/root)
-- `make tools` for Rust toolchain bootstrap (`rustup`, `stable`, `rustfmt`, `clippy`)
+- `make tools` for Rust tooling bootstrap via Fedora `dnf` (uses `~/proxy` + `sudo_dnf` if available)
 - `Dockerfile` for containerized builds
 - `scripts/doctor.sh` for host/kernel/tool preflight checks

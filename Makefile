@@ -4,15 +4,20 @@ CONFIG ?= config/example.toml
 .PHONY: tools doctor fmt lint test test-functional dry-run run-initiator run-terminator
 
 tools:
-	@if ! command -v rustup >/dev/null 2>&1; then \
-		echo "rustup not found; installing..."; \
-		curl https://sh.rustup.rs -sSf | sh -s -- -y; \
+	@set -e; \
+	if [ -f "$$HOME/proxy" ]; then \
+		. "$$HOME/proxy"; \
+	fi; \
+	if command -v sudo_dnf >/dev/null 2>&1; then \
+		sudo_dnf install -y rust cargo rustfmt clippy; \
+	elif command -v dnf >/dev/null 2>&1; then \
+		sudo -E dnf install -y rust cargo rustfmt clippy; \
+	else \
+		echo "dnf not found; install rust/cargo/rustfmt/clippy manually for this distro"; \
+		exit 1; \
 	fi
-	@. "$$HOME/.cargo/env" && \
-		rustup toolchain install stable && \
-		rustup component add rustfmt clippy && \
-		rustc --version && \
-		cargo --version
+	@rustc --version
+	@cargo --version
 
 doctor:
 	./scripts/doctor.sh

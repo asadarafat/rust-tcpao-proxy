@@ -3,15 +3,18 @@
 ## 1) Host prerequisites
 
 - Linux host kernel with TCP-AO support (`CONFIG_TCP_AO=y`)
-- Rust toolchain (`rustup`, `cargo`, `clippy`, `rustfmt`)
+- Rust tooling (`rust`, `cargo`, `clippy`, `rustfmt`)
 - Network debug tooling (`ss`, `tcpdump`)
 
 ## 2) Bootstrap
 
 ```bash
 make tools
+rustc --version
+cargo --version
 make doctor
-cargo build
+make test
+make test-functional
 ```
 
 ## 3) Validate config only
