@@ -157,17 +157,28 @@ inject_test_payload() {
   local init_container="$1"
   local host="$2"
   local port="$3"
+  local require_bidirectional="${4:-0}"
   local attempts=10
   local i
 
   for ((i = 1; i <= attempts; i++)); do
-    if docker exec "$init_container" bash -lc "exec 3<>/dev/tcp/$host/$port; echo tcpao-functional-test-$i >&3; sleep 1; exec 3<&-; exec 3>&-"; then
-      ok "$DIRECTION_GOBGP_TO_GOBMP payload injected via $host:$port (attempt $i)"
-      return 0
+    if is_true "$require_bidirectional"; then
+      if docker exec "$init_container" bash -lc "payload=tcpao-functional-test-$i; exec 3<>/dev/tcp/$host/$port; echo \"\$payload\" >&3; IFS= read -r -t 5 reply <&3; test \"\$reply\" = \"\$payload\"; exec 3<&-; exec 3>&-"; then
+        ok "$DIRECTION_GOBGP_TO_GOBMP payload injected and echoed via $host:$port (attempt $i)"
+        return 0
+      fi
+    else
+      if docker exec "$init_container" bash -lc "exec 3<>/dev/tcp/$host/$port; echo tcpao-functional-test-$i >&3; sleep 1; exec 3<&-; exec 3>&-"; then
+        ok "$DIRECTION_GOBGP_TO_GOBMP payload injected via $host:$port (attempt $i)"
+        return 0
+      fi
     fi
     sleep 1
   done
 
+  if is_true "$require_bidirectional"; then
+    fail "unable to inject+echo $DIRECTION_GOBGP_TO_GOBMP payload via listener at $host:$port after $attempts attempts"
+  fi
   fail "unable to inject $DIRECTION_GOBGP_TO_GOBMP payload into listener at $host:$port after $attempts attempts"
 }
 
@@ -258,6 +269,27 @@ extract_latest_counter() {
   printf '%s' "$value"
 }
 
+wait_for_connection_closed_stats() {
+  local init_container="$1"
+  local term_container="$2"
+  local waited=0
+
+  while (( waited < MAX_WAIT_SECS )); do
+    if docker logs "$init_container" 2>&1 | grep -q "connection closed" &&
+      docker logs "$term_container" 2>&1 | grep -q "connection closed"; then
+      ok "connection-closed stats are present on both proxies"
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  step "connection-closed stats not found within ${MAX_WAIT_SECS}s; dumping recent logs"
+  docker logs "$init_container" 2>&1 | tail -n 120 || true
+  docker logs "$term_container" 2>&1 | tail -n 120 || true
+  fail "timed out waiting for connection-closed stats on both proxies"
+}
+
 main() {
   require_cmd containerlab
   require_cmd docker
@@ -312,8 +344,8 @@ main() {
   start_terminator_backend_if_needed "$term_container" "$FORWARD_PLAIN" "$forward_port" "$backend_mode"
   dump_runtime_configs "$init_container" "$term_container"
 
-  inject_test_payload "$init_container" "$plain_host" "$plain_port"
-  sleep 1
+  inject_test_payload "$init_container" "$plain_host" "$plain_port" "$REQUIRE_BIDIRECTIONAL_TRAFFIC"
+  wait_for_connection_closed_stats "$init_container" "$term_container"
 
   local init_logs
   local term_logs
