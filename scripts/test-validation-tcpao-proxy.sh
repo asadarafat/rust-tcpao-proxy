@@ -83,6 +83,12 @@ start_terminator_backend_if_needed() {
     fail "gobmp in $term_container does not support --listen or --source-port; set APP_CMD manually for a backend on $forward_plain"
   fi
 
+  # Some gobmp builds default to Kafka output when dump mode is unset.
+  # Force console dump when supported so the backend can start without Kafka config.
+  if docker exec "$term_container" bash -lc "$backend_bin --help 2>&1 | grep -q -- '--dump'"; then
+    backend_cmd="$backend_cmd --dump console"
+  fi
+
   step "starting temporary gobmp backend: $backend_cmd"
   docker exec "$term_container" bash -lc "nohup $backend_cmd >$backend_log 2>&1 &"
 
