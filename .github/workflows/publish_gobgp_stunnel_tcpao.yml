@@ -54,7 +54,7 @@ jobs:
           file: deploy/images/gobgp-stunnel-tcpao/Dockerfile
           push: true
           build-args: |
-            BASE_IMAGE=${{ github.event.inputs.base_image }}
+            BASE_IMAGE=${{ github.event.inputs.base_image || 'ghcr.io/asadarafat/gobgp-stunnel:v3.37.0' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 

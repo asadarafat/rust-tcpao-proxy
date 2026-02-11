@@ -54,7 +54,7 @@ jobs:
           file: deploy/images/gobmp-tls-tcpao/Dockerfile
           push: true
           build-args: |
-            BASE_IMAGE=${{ github.event.inputs.base_image }}
+            BASE_IMAGE=${{ github.event.inputs.base_image || 'ghcr.io/asadarafat/gobmp:v1.0.4-alpha-tls' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
