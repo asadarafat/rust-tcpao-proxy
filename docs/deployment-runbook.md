@@ -139,6 +139,7 @@ Notes:
 - This target runs `containerlab deploy -t deploy/containerlab/tcpao-bmp.clab.yml --reconfigure`
 - It injects payload through the initiator sidecar and validates AO/traffic evidence in both container logs
 - With `REQUIRE_BIDIRECTIONAL_TRAFFIC=1`, backend mode defaults to `echo` (`BACKEND_MODE=auto`) so reverse-direction bytes are required
+- It also prints goBGP/goBMP runtime config context (sidecar config, app config candidates, and process command lines) from both containers
 - Docker/containerlab privileges are required (`sudo -E` may be needed)
 
 ## 7) Negative test (fail closed)

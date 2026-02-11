@@ -191,6 +191,54 @@ assert_log_absent() {
   ok "$desc not present"
 }
 
+dump_runtime_configs() {
+  local init_container="$1"
+  local term_container="$2"
+
+  step "spitting out runtime configs for goBGP/goBMP and tcpao-proxy"
+
+  echo "[config][$INIT_NODE] /etc/tcpao-proxy/config.toml"
+  docker exec "$init_container" bash -lc 'cat /etc/tcpao-proxy/config.toml 2>/dev/null || echo "<missing>"'
+
+  echo "[config][$INIT_NODE] app config candidates"
+  docker exec "$init_container" bash -lc '
+for f in \
+  /etc/gobgp/gobgp.conf \
+  /etc/gobgp/gobgp-bmp-test.conf \
+  /etc/stunnel/stunnel.conf \
+  /etc/tcpao-proxy/initiator.toml.tmpl
+do
+  if [[ -f "$f" ]]; then
+    echo "--- $f ---"
+    cat "$f"
+  fi
+done
+'
+
+  echo "[config][$TERM_NODE] /etc/tcpao-proxy/config.toml"
+  docker exec "$term_container" bash -lc 'cat /etc/tcpao-proxy/config.toml 2>/dev/null || echo "<missing>"'
+
+  echo "[config][$TERM_NODE] app config candidates"
+  docker exec "$term_container" bash -lc '
+for f in \
+  /etc/gobmp/gobmp.yaml \
+  /root/.gobmp.yaml \
+  /etc/tcpao-proxy/terminator.toml.tmpl
+do
+  if [[ -f "$f" ]]; then
+    echo "--- $f ---"
+    cat "$f"
+  fi
+done
+'
+
+  echo "[config][$INIT_NODE] processes"
+  docker exec "$init_container" bash -lc "ps -ef | grep -E '[t]cpao-proxy|[g]obgp|[s]tunnel' || true"
+
+  echo "[config][$TERM_NODE] processes"
+  docker exec "$term_container" bash -lc "ps -ef | grep -E '[t]cpao-proxy|[g]obmp' || true"
+}
+
 extract_latest_counter() {
   local logs="$1"
   local field="$2"
@@ -262,6 +310,7 @@ main() {
   wait_for_listen_port "$init_container" "$plain_port" "goBGP-side proxy"
   wait_for_listen_port "$term_container" "$LISTEN_AO_PORT" "goBMP-side proxy"
   start_terminator_backend_if_needed "$term_container" "$FORWARD_PLAIN" "$forward_port" "$backend_mode"
+  dump_runtime_configs "$init_container" "$term_container"
 
   inject_test_payload "$init_container" "$plain_host" "$plain_port"
   sleep 1
