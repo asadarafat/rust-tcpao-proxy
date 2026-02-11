@@ -9,6 +9,7 @@ LISTEN_AO_PORT="${LISTEN_AO_PORT:-1790}"
 FORWARD_PLAIN="${FORWARD_PLAIN:-127.0.0.1:11019}"
 MAX_WAIT_SECS="${MAX_WAIT_SECS:-60}"
 REQUIRE_BIDIRECTIONAL_TRAFFIC="${REQUIRE_BIDIRECTIONAL_TRAFFIC:-0}"
+BACKEND_MODE="${BACKEND_MODE:-auto}"
 
 DIRECTION_GOBGP_TO_GOBMP="from-goBGP-to-goBMP"
 DIRECTION_GOBMP_TO_GOBGP="from-goBMP-to-goBGP"
@@ -76,40 +77,64 @@ start_terminator_backend_if_needed() {
   local term_container="$1"
   local forward_plain="$2"
   local forward_port="$3"
+  local backend_mode="$4"
   local backend_log="/tmp/tcpao-validation-backend.log"
   local backend_bin=""
   local backend_cmd=""
+  local apt_log="/tmp/tcpao-validation-apt.log"
   local waited=0
 
   if is_listening_on_port "$term_container" "$forward_port"; then
     ok "goBMP backend already listening on :$forward_port"
+    if [[ "$backend_mode" == "echo" ]]; then
+      warn "backend mode is echo but an existing listener is already running on :$forward_port; script will not replace it"
+    fi
     return 0
   fi
 
-  step "no goBMP backend listener on $forward_plain; starting temporary gobmp backend"
-  if docker exec "$term_container" bash -lc "test -x /gobmp"; then
-    backend_bin="/gobmp"
-  elif docker exec "$term_container" bash -lc "command -v gobmp >/dev/null 2>&1"; then
-    backend_bin="gobmp"
+  if [[ "$backend_mode" == "echo" ]]; then
+    step "no backend listener on $forward_plain; starting temporary echo backend"
+    if docker exec "$term_container" bash -lc "command -v socat >/dev/null 2>&1"; then
+      backend_cmd="socat TCP-LISTEN:${forward_port},bind=127.0.0.1,reuseaddr,fork EXEC:/bin/cat"
+    elif docker exec "$term_container" bash -lc "command -v perl >/dev/null 2>&1"; then
+      backend_cmd="perl -MIO::Socket::INET -e 'my \$p=shift; my \$s=IO::Socket::INET->new(LocalAddr=>\"127.0.0.1\",LocalPort=>\$p,Proto=>\"tcp\",Listen=>10,Reuse=>1) or die \$!; while(my \$c=\$s->accept()){ while(sysread(\$c,my \$buf,65535)){ syswrite(\$c,\$buf); } close(\$c); }' ${forward_port}"
+    elif docker exec "$term_container" bash -lc "command -v apt-get >/dev/null 2>&1"; then
+      step "echo backend requires socat/perl; attempting apt-get install socat"
+      docker exec "$term_container" bash -lc "apt-get update >$apt_log 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends socat >>$apt_log 2>&1" \
+        || {
+          docker exec "$term_container" bash -lc "tail -n 120 $apt_log 2>/dev/null || true"
+          fail "failed to install socat for echo backend in $term_container"
+        }
+      backend_cmd="socat TCP-LISTEN:${forward_port},bind=127.0.0.1,reuseaddr,fork EXEC:/bin/cat"
+    else
+      fail "echo backend mode requested but no socat/perl/apt-get available in $term_container"
+    fi
   else
-    fail "forward backend is not listening and gobmp binary was not found in $term_container; set APP_CMD in topology or install a listener on $forward_plain"
+    step "no goBMP backend listener on $forward_plain; starting temporary gobmp backend"
+    if docker exec "$term_container" bash -lc "test -x /gobmp"; then
+      backend_bin="/gobmp"
+    elif docker exec "$term_container" bash -lc "command -v gobmp >/dev/null 2>&1"; then
+      backend_bin="gobmp"
+    else
+      fail "forward backend is not listening and gobmp binary was not found in $term_container; set APP_CMD in topology or install a listener on $forward_plain"
+    fi
+
+    if docker exec "$term_container" bash -lc "$backend_bin --help 2>&1 | grep -q -- '--listen'"; then
+      backend_cmd="$backend_bin --listen $forward_plain"
+    elif docker exec "$term_container" bash -lc "$backend_bin --help 2>&1 | grep -q -- '--source-port'"; then
+      backend_cmd="$backend_bin --source-port $forward_port"
+    else
+      fail "gobmp in $term_container does not support --listen or --source-port; set APP_CMD manually for a backend on $forward_plain"
+    fi
+
+    # Some gobmp builds default to Kafka output when dump mode is unset.
+    # Force console dump when supported so the backend can start without Kafka config.
+    if docker exec "$term_container" bash -lc "$backend_bin --help 2>&1 | grep -q -- '--dump'"; then
+      backend_cmd="$backend_cmd --dump console"
+    fi
   fi
 
-  if docker exec "$term_container" bash -lc "$backend_bin --help 2>&1 | grep -q -- '--listen'"; then
-    backend_cmd="$backend_bin --listen $forward_plain"
-  elif docker exec "$term_container" bash -lc "$backend_bin --help 2>&1 | grep -q -- '--source-port'"; then
-    backend_cmd="$backend_bin --source-port $forward_port"
-  else
-    fail "gobmp in $term_container does not support --listen or --source-port; set APP_CMD manually for a backend on $forward_plain"
-  fi
-
-  # Some gobmp builds default to Kafka output when dump mode is unset.
-  # Force console dump when supported so the backend can start without Kafka config.
-  if docker exec "$term_container" bash -lc "$backend_bin --help 2>&1 | grep -q -- '--dump'"; then
-    backend_cmd="$backend_cmd --dump console"
-  fi
-
-  step "starting temporary gobmp backend: $backend_cmd"
+  step "starting temporary backend ($backend_mode): $backend_cmd"
   docker exec "$term_container" bash -lc "nohup $backend_cmd >$backend_log 2>&1 &"
 
   while (( waited < MAX_WAIT_SECS )); do
@@ -121,7 +146,7 @@ start_terminator_backend_if_needed() {
     waited=$((waited + 1))
   done
 
-  step "goBMP backend failed to open :$forward_port; dumping diagnostics"
+  step "backend ($backend_mode) failed to open :$forward_port; dumping diagnostics"
   docker exec "$term_container" bash -lc "ss -ltnp || true"
   docker exec "$term_container" bash -lc "ps -ef | grep -E '[g]obmp|tcpao-proxy' || true"
   docker exec "$term_container" bash -lc "tail -n 120 $backend_log 2>/dev/null || true"
@@ -207,10 +232,26 @@ main() {
   local plain_host="${LISTEN_PLAIN%:*}"
   local plain_port="${LISTEN_PLAIN##*:}"
   local forward_port="${FORWARD_PLAIN##*:}"
+  local backend_mode="$BACKEND_MODE"
 
   [[ "$plain_host" != "$LISTEN_PLAIN" ]] || fail "LISTEN_PLAIN must be host:port, got: $LISTEN_PLAIN"
   [[ "$plain_port" != "$LISTEN_PLAIN" ]] || fail "LISTEN_PLAIN must include a port, got: $LISTEN_PLAIN"
   [[ "$forward_port" != "$FORWARD_PLAIN" ]] || fail "FORWARD_PLAIN must include a port, got: $FORWARD_PLAIN"
+
+  if [[ "$backend_mode" == "auto" ]]; then
+    if is_true "$REQUIRE_BIDIRECTIONAL_TRAFFIC"; then
+      backend_mode="echo"
+    else
+      backend_mode="gobmp"
+    fi
+  fi
+  case "$backend_mode" in
+    gobmp|echo) ;;
+    *)
+      fail "BACKEND_MODE must be one of: auto, gobmp, echo (got: $BACKEND_MODE)"
+      ;;
+  esac
+  step "selected backend mode: $backend_mode"
 
   step "deploying $TOPOLOGY with --reconfigure"
   containerlab deploy -t "$TOPOLOGY" --reconfigure
@@ -220,7 +261,7 @@ main() {
 
   wait_for_listen_port "$init_container" "$plain_port" "goBGP-side proxy"
   wait_for_listen_port "$term_container" "$LISTEN_AO_PORT" "goBMP-side proxy"
-  start_terminator_backend_if_needed "$term_container" "$FORWARD_PLAIN" "$forward_port"
+  start_terminator_backend_if_needed "$term_container" "$FORWARD_PLAIN" "$forward_port" "$backend_mode"
 
   inject_test_payload "$init_container" "$plain_host" "$plain_port"
   sleep 1

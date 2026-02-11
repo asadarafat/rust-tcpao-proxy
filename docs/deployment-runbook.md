@@ -128,10 +128,17 @@ Automated end-to-end AO + forwarding validation:
 make test-validation-tcpao-proxy
 ```
 
+Strict bidirectional data validation (both `from-goBGP-to-goBMP` and `from-goBMP-to-goBGP`):
+
+```bash
+REQUIRE_BIDIRECTIONAL_TRAFFIC=1 make test-validation-tcpao-proxy
+```
+
 Notes:
 
 - This target runs `containerlab deploy -t deploy/containerlab/tcpao-bmp.clab.yml --reconfigure`
 - It injects payload through the initiator sidecar and validates AO/traffic evidence in both container logs
+- With `REQUIRE_BIDIRECTIONAL_TRAFFIC=1`, backend mode defaults to `echo` (`BACKEND_MODE=auto`) so reverse-direction bytes are required
 - Docker/containerlab privileges are required (`sudo -E` may be needed)
 
 ## 7) Negative test (fail closed)
