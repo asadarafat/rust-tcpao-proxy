@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
 use tokio::task::JoinHandle;
+use tracing_subscriber::EnvFilter;
 
 use tcpao_proxy::config::{Config, Mode};
 use tcpao_proxy::tcpao::linux;
@@ -21,6 +22,8 @@ const TEST_NO_AO_ENV: &str = "TCPAO_PROXY_TEST_NO_AO";
 
 #[test]
 fn simple_traffic_flows_through_two_tcpao_proxies() -> Result<(), Box<dyn Error>> {
+    init_test_tracing();
+
     let no_ao_bypass = match linux::probe_tcpao_support() {
         Ok(()) => false,
         Err(err) => {
@@ -182,7 +185,7 @@ fn write_initiator_config(
     key_env: &str,
 ) -> io::Result<()> {
     let content = format!(
-        "[global]\nlog_format = \"text\"\nidle_timeout_secs = 30\ntcp_keepalive = false\n\n[initiator]\nlisten_plain = \"127.0.0.1:{initiator_plain_port}\"\nremote_ao = \"127.0.0.1:{terminator_ao_port}\"\n\n[[ao_policy]]\nname = \"e2e\"\npeer_ip = \"127.0.0.1\"\nkeyid = 1\nmac_alg = \"hmac-sha1\"\nkey_source = \"env:{key_env}\"\n"
+        "[global]\nlog_format = \"text\"\nidle_timeout_secs = 30\ntcp_keepalive = false\n\n[initiator]\nlisten_plain = \"127.0.0.1:{initiator_plain_port}\"\nremote_ao = \"127.0.0.1:{terminator_ao_port}\"\n\n[[ao_policy]]\nname = \"e2e\"\npeer_ip = \"127.0.0.1\"\nkeyid = 1\nmac_alg = \"hmac-sha256\"\nkey_source = \"env:{key_env}\"\n"
     );
 
     fs::write(path, content)
@@ -195,7 +198,7 @@ fn write_terminator_config(
     key_env: &str,
 ) -> io::Result<()> {
     let content = format!(
-        "[global]\nlog_format = \"text\"\nidle_timeout_secs = 30\ntcp_keepalive = false\n\n[terminator]\nlisten_ao = \"127.0.0.1:{terminator_ao_port}\"\nforward_plain = \"127.0.0.1:{terminator_plain_port}\"\n\n[[ao_policy]]\nname = \"e2e\"\npeer_ip = \"127.0.0.1\"\nkeyid = 1\nmac_alg = \"hmac-sha1\"\nkey_source = \"env:{key_env}\"\n"
+        "[global]\nlog_format = \"text\"\nidle_timeout_secs = 30\ntcp_keepalive = false\n\n[terminator]\nlisten_ao = \"127.0.0.1:{terminator_ao_port}\"\nforward_plain = \"127.0.0.1:{terminator_plain_port}\"\n\n[[ao_policy]]\nname = \"e2e\"\npeer_ip = \"127.0.0.1\"\nkeyid = 1\nmac_alg = \"hmac-sha256\"\nkey_source = \"env:{key_env}\"\n"
     );
 
     fs::write(path, content)
@@ -227,4 +230,13 @@ impl Drop for ScopedEnvVar {
             std::env::remove_var(self.key);
         }
     }
+}
+
+fn init_test_tracing() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::from_default_env().add_directive("debug".parse().expect("valid directive")),
+        )
+        .with_test_writer()
+        .try_init();
 }

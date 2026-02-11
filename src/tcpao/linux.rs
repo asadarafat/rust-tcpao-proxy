@@ -267,10 +267,10 @@ fn install_key(
 
     if set_current {
         add.set_set_current(1);
-        add.set_set_rnext(1);
     }
 
     if policy.rnextkeyid.is_some() {
+        add.set_set_rnext(1);
         debug!(
             policy = %policy.name,
             "rnextkeyid configured but rollover semantics are not fully implemented yet"
