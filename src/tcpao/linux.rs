@@ -31,7 +31,12 @@ pub fn probe_tcpao_support() -> io::Result<()> {
 
     let result = match get_ao_info(fd) {
         Ok(_) => Ok(()),
-        Err(err) if err.raw_os_error() == Some(libc::ENOENT) => Ok(()),
+        Err(err)
+            if err.raw_os_error() == Some(libc::ENOENT)
+                || err.kind() == io::ErrorKind::NotFound =>
+        {
+            Ok(())
+        }
         Err(err) => Err(err),
     };
 
