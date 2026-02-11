@@ -8,6 +8,10 @@ LISTEN_PLAIN="${LISTEN_PLAIN:-127.0.0.1:5000}"
 LISTEN_AO_PORT="${LISTEN_AO_PORT:-1790}"
 FORWARD_PLAIN="${FORWARD_PLAIN:-127.0.0.1:11019}"
 MAX_WAIT_SECS="${MAX_WAIT_SECS:-60}"
+REQUIRE_BIDIRECTIONAL_TRAFFIC="${REQUIRE_BIDIRECTIONAL_TRAFFIC:-0}"
+
+DIRECTION_GOBGP_TO_GOBMP="from-goBGP-to-goBMP"
+DIRECTION_GOBMP_TO_GOBGP="from-goBMP-to-goBGP"
 
 step() {
   echo "[step] $*"
@@ -17,9 +21,25 @@ ok() {
   echo "[ok] $*"
 }
 
+warn() {
+  echo "[warn] $*"
+}
+
 fail() {
   echo "[fail] $*" >&2
   exit 1
+}
+
+is_true() {
+  local v="${1:-}"
+  case "${v,,}" in
+    1|true|yes|y|on)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 require_cmd() {
@@ -62,11 +82,11 @@ start_terminator_backend_if_needed() {
   local waited=0
 
   if is_listening_on_port "$term_container" "$forward_port"; then
-    ok "terminator backend already listening on :$forward_port"
+    ok "goBMP backend already listening on :$forward_port"
     return 0
   fi
 
-  step "no backend listener on $forward_plain; starting temporary /gobmp backend"
+  step "no goBMP backend listener on $forward_plain; starting temporary gobmp backend"
   if docker exec "$term_container" bash -lc "test -x /gobmp"; then
     backend_bin="/gobmp"
   elif docker exec "$term_container" bash -lc "command -v gobmp >/dev/null 2>&1"; then
@@ -94,14 +114,14 @@ start_terminator_backend_if_needed() {
 
   while (( waited < MAX_WAIT_SECS )); do
     if is_listening_on_port "$term_container" "$forward_port"; then
-      ok "terminator backend is listening on :$forward_port"
+      ok "goBMP backend is listening on :$forward_port"
       return 0
     fi
     sleep 1
     waited=$((waited + 1))
   done
 
-  step "terminator backend failed to open :$forward_port; dumping diagnostics"
+  step "goBMP backend failed to open :$forward_port; dumping diagnostics"
   docker exec "$term_container" bash -lc "ss -ltnp || true"
   docker exec "$term_container" bash -lc "ps -ef | grep -E '[g]obmp|tcpao-proxy' || true"
   docker exec "$term_container" bash -lc "tail -n 120 $backend_log 2>/dev/null || true"
@@ -117,13 +137,13 @@ inject_test_payload() {
 
   for ((i = 1; i <= attempts; i++)); do
     if docker exec "$init_container" bash -lc "exec 3<>/dev/tcp/$host/$port; echo tcpao-functional-test-$i >&3; sleep 1; exec 3<&-; exec 3>&-"; then
-      ok "injected payload via $host:$port (attempt $i)"
+      ok "$DIRECTION_GOBGP_TO_GOBMP payload injected via $host:$port (attempt $i)"
       return 0
     fi
     sleep 1
   done
 
-  fail "unable to inject payload into initiator listener at $host:$port after $attempts attempts"
+  fail "unable to inject $DIRECTION_GOBGP_TO_GOBMP payload into listener at $host:$port after $attempts attempts"
 }
 
 assert_log_contains() {
@@ -144,6 +164,25 @@ assert_log_absent() {
     fail "unexpected log entry found: $desc"
   fi
   ok "$desc not present"
+}
+
+extract_latest_counter() {
+  local logs="$1"
+  local field="$2"
+  local who="$3"
+  local line=""
+  local value=""
+
+  line="$(printf '%s\n' "$logs" | grep -E 'connection closed' | tail -n 1 || true)"
+  [[ -n "$line" ]] || fail "$who has no connection-closed log entry to parse $field"
+
+  value="$(printf '%s\n' "$line" | sed -n -E "s/.*\"$field\":([0-9]+).*/\\1/p")"
+  if [[ -z "$value" ]]; then
+    value="$(printf '%s\n' "$line" | sed -n -E "s/.*$field[=: ]+([0-9]+).*/\\1/p")"
+  fi
+  [[ -n "$value" ]] || fail "unable to parse $field from $who connection-closed log: $line"
+
+  printf '%s' "$value"
 }
 
 main() {
@@ -179,8 +218,8 @@ main() {
   step "inspecting deployed topology"
   containerlab inspect -t "$TOPOLOGY"
 
-  wait_for_listen_port "$init_container" "$plain_port" "initiator proxy"
-  wait_for_listen_port "$term_container" "$LISTEN_AO_PORT" "terminator proxy"
+  wait_for_listen_port "$init_container" "$plain_port" "goBGP-side proxy"
+  wait_for_listen_port "$term_container" "$LISTEN_AO_PORT" "goBMP-side proxy"
   start_terminator_backend_if_needed "$term_container" "$FORWARD_PLAIN" "$forward_port"
 
   inject_test_payload "$init_container" "$plain_host" "$plain_port"
@@ -191,20 +230,33 @@ main() {
   init_logs="$(docker logs "$init_container" 2>&1 || true)"
   term_logs="$(docker logs "$term_container" 2>&1 || true)"
 
-  assert_log_contains "$init_logs" "applied outbound tcp-ao policy" "initiator applied outbound AO policy"
-  assert_log_contains "$term_logs" "configured tcp-ao policies on listener" "terminator configured listener AO policy"
+  assert_log_contains "$init_logs" "applied outbound tcp-ao policy" "$DIRECTION_GOBGP_TO_GOBMP AO outbound policy applied"
+  assert_log_contains "$term_logs" "configured tcp-ao policies on listener" "$DIRECTION_GOBGP_TO_GOBMP AO listener policy configured"
 
-  assert_log_absent "$init_logs" "failed to apply outbound AO policy" "initiator outbound AO failure"
-  assert_log_absent "$term_logs" "inbound AO verification failed" "terminator inbound AO verification failure"
+  assert_log_absent "$init_logs" "failed to apply outbound AO policy" "$DIRECTION_GOBGP_TO_GOBMP outbound AO failure"
+  assert_log_absent "$term_logs" "inbound AO verification failed" "$DIRECTION_GOBGP_TO_GOBMP inbound AO verification failure"
   assert_log_absent "$init_logs"$'\n'"$term_logs" "tcp-ao test bypass enabled" "test bypass marker"
 
-  printf '%s\n' "$init_logs" | grep -E 'connection closed' | grep -Eq 'bytes_up[=: ]*[1-9][0-9]*|"bytes_up":[1-9][0-9]*' \
-    || fail "initiator has no connection-closed entry with bytes_up>0"
-  ok "initiator recorded forwarded bytes"
+  local init_bytes_up
+  local init_bytes_down
+  local term_bytes_up
+  local term_bytes_down
+  init_bytes_up="$(extract_latest_counter "$init_logs" "bytes_up" "goBGP-side proxy")"
+  init_bytes_down="$(extract_latest_counter "$init_logs" "bytes_down" "goBGP-side proxy")"
+  term_bytes_up="$(extract_latest_counter "$term_logs" "bytes_up" "goBMP-side proxy")"
+  term_bytes_down="$(extract_latest_counter "$term_logs" "bytes_down" "goBMP-side proxy")"
 
-  printf '%s\n' "$term_logs" | grep -E 'connection closed' | grep -Eq 'bytes_up[=: ]*[1-9][0-9]*|"bytes_up":[1-9][0-9]*' \
-    || fail "terminator has no connection-closed entry with bytes_up>0"
-  ok "terminator recorded forwarded bytes"
+  (( init_bytes_up > 0 )) || fail "$DIRECTION_GOBGP_TO_GOBMP missing bytes on goBGP-side proxy (bytes_up=$init_bytes_up)"
+  (( term_bytes_up > 0 )) || fail "$DIRECTION_GOBGP_TO_GOBMP missing bytes on goBMP-side proxy (bytes_up=$term_bytes_up)"
+  ok "$DIRECTION_GOBGP_TO_GOBMP traffic observed (goBGP bytes_up=$init_bytes_up, goBMP bytes_up=$term_bytes_up)"
+
+  if (( init_bytes_down > 0 && term_bytes_down > 0 )); then
+    ok "$DIRECTION_GOBMP_TO_GOBGP traffic observed (goBMP bytes_down=$term_bytes_down, goBGP bytes_down=$init_bytes_down)"
+  elif is_true "$REQUIRE_BIDIRECTIONAL_TRAFFIC"; then
+    fail "$DIRECTION_GOBMP_TO_GOBGP not observed (goBGP bytes_down=$init_bytes_down, goBMP bytes_down=$term_bytes_down) with REQUIRE_BIDIRECTIONAL_TRAFFIC=1"
+  else
+    warn "$DIRECTION_GOBMP_TO_GOBGP not observed (goBGP bytes_down=$init_bytes_down, goBMP bytes_down=$term_bytes_down); expected for one-way BMP streams"
+  fi
 
   ok "test-validation-tcpao-proxy passed"
 }
