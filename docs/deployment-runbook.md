@@ -122,6 +122,18 @@ Socket checks:
 ss -ltnp | grep -E '1790|5000|11019'
 ```
 
+Automated end-to-end AO + forwarding validation:
+
+```bash
+make test-validation-tcpao-proxy
+```
+
+Notes:
+
+- This target runs `containerlab deploy -t deploy/containerlab/tcpao-bmp.clab.yml --reconfigure`
+- It injects payload through the initiator sidecar and validates AO/traffic evidence in both container logs
+- Docker/containerlab privileges are required (`sudo -E` may be needed)
+
 ## 7) Negative test (fail closed)
 
 Set different `TCPAO_KEY` values on each side and restart. Expected:
