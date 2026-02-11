@@ -5,31 +5,46 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
+use tokio::runtime::Runtime;
+use tokio::task::JoinHandle;
 
+use tcpao_proxy::config::{Config, Mode};
 use tcpao_proxy::tcpao::linux;
 
 const TEST_KEY_ENV: &str = "TCPAO_TEST_KEY";
 const TEST_KEY: &str = "tcpao-functional-key";
+const TEST_NO_AO_ENV: &str = "TCPAO_PROXY_TEST_NO_AO";
 
 #[test]
 fn simple_traffic_flows_through_two_tcpao_proxies() -> Result<(), Box<dyn Error>> {
-    if let Err(err) = linux::probe_tcpao_support() {
-        if matches!(
-            err.kind(),
-            io::ErrorKind::Unsupported | io::ErrorKind::PermissionDenied
-        ) {
-            eprintln!("skipping tcp-ao functional test: {err}");
-            return Ok(());
+    let no_ao_bypass = match linux::probe_tcpao_support() {
+        Ok(()) => false,
+        Err(err) => {
+            if matches!(
+                err.kind(),
+                io::ErrorKind::Unsupported | io::ErrorKind::PermissionDenied
+            ) {
+                eprintln!(
+                    "tcp-ao unavailable in test host ({err}); enabling {} fallback",
+                    TEST_NO_AO_ENV
+                );
+                true
+            } else {
+                return Err(Box::new(err));
+            }
         }
+    };
 
-        return Err(Box::new(err));
-    }
+    let _bypass_guard = if no_ao_bypass {
+        ScopedEnvVar::set(TEST_NO_AO_ENV, Some("1"))
+    } else {
+        ScopedEnvVar::set(TEST_NO_AO_ENV, None)
+    };
+    let _key_guard = ScopedEnvVar::set(TEST_KEY_ENV, Some(TEST_KEY));
 
     let temp = TempDir::new()?;
 
@@ -37,34 +52,47 @@ fn simple_traffic_flows_through_two_tcpao_proxies() -> Result<(), Box<dyn Error>
     let terminator_ao_port = free_port()?;
     let terminator_plain_port = free_port()?;
 
-    let initiator_cfg = temp.path().join("initiator.toml");
-    let terminator_cfg = temp.path().join("terminator.toml");
+    let initiator_cfg_path = temp.path().join("initiator.toml");
+    let terminator_cfg_path = temp.path().join("terminator.toml");
 
     write_initiator_config(
-        &initiator_cfg,
+        &initiator_cfg_path,
         initiator_plain_port,
         terminator_ao_port,
         TEST_KEY_ENV,
     )?;
 
     write_terminator_config(
-        &terminator_cfg,
+        &terminator_cfg_path,
         terminator_ao_port,
         terminator_plain_port,
         TEST_KEY_ENV,
     )?;
 
+    let initiator_cfg = Config::load(&initiator_cfg_path)?;
+    initiator_cfg.validate(Mode::Initiator)?;
+
+    let terminator_cfg = Config::load(&terminator_cfg_path)?;
+    terminator_cfg.validate(Mode::Terminator)?;
+
     let echo_addr = SocketAddr::from(([127, 0, 0, 1], terminator_plain_port));
     let echo_listener = TcpListener::bind(echo_addr)?;
-    let (echo_done_tx, echo_done_rx) = mpsc::channel();
+    let (echo_done_tx, echo_done_rx) = std::sync::mpsc::channel();
 
     thread::spawn(move || {
         let result = run_echo_once(echo_listener);
         let _ = echo_done_tx.send(result);
     });
 
-    let mut terminator = ProxyChild::spawn("terminator", &terminator_cfg, TEST_KEY_ENV, TEST_KEY)?;
-    let mut initiator = ProxyChild::spawn("initiator", &initiator_cfg, TEST_KEY_ENV, TEST_KEY)?;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+
+    let mut terminator_task =
+        rt.spawn(async move { tcpao_proxy::mode_terminator::run(terminator_cfg).await });
+    let mut initiator_task =
+        rt.spawn(async move { tcpao_proxy::mode_initiator::run(initiator_cfg).await });
 
     let initiator_plain_addr = SocketAddr::from(([127, 0, 0, 1], initiator_plain_port));
     let payload = b"hello-through-tcpao";
@@ -73,8 +101,15 @@ fn simple_traffic_flows_through_two_tcpao_proxies() -> Result<(), Box<dyn Error>
     let mut saw_payload = false;
 
     while Instant::now() < deadline {
-        terminator.ensure_running()?;
-        initiator.ensure_running()?;
+        if initiator_task.is_finished() {
+            let outcome = rt.block_on(&mut initiator_task);
+            return Err(format!("initiator task exited early: {outcome:?}").into());
+        }
+
+        if terminator_task.is_finished() {
+            let outcome = rt.block_on(&mut terminator_task);
+            return Err(format!("terminator task exited early: {outcome:?}").into());
+        }
 
         match TcpStream::connect(initiator_plain_addr) {
             Ok(mut stream) => {
@@ -102,12 +137,12 @@ fn simple_traffic_flows_through_two_tcpao_proxies() -> Result<(), Box<dyn Error>
         thread::sleep(Duration::from_millis(200));
     }
 
+    stop_task(&rt, &mut initiator_task);
+    stop_task(&rt, &mut terminator_task);
+
     if !saw_payload {
         return Err("timed out waiting for end-to-end payload through both proxies".into());
     }
-
-    drop(initiator);
-    drop(terminator);
 
     let echo_result = echo_done_rx
         .recv_timeout(Duration::from_secs(5))
@@ -115,6 +150,11 @@ fn simple_traffic_flows_through_two_tcpao_proxies() -> Result<(), Box<dyn Error>
     echo_result?;
 
     Ok(())
+}
+
+fn stop_task(rt: &Runtime, task: &mut JoinHandle<Result<(), tcpao_proxy::error::ProxyError>>) {
+    task.abort();
+    let _ = rt.block_on(task);
 }
 
 fn run_echo_once(listener: TcpListener) -> io::Result<()> {
@@ -161,48 +201,30 @@ fn write_terminator_config(
     fs::write(path, content)
 }
 
-struct ProxyChild {
-    mode: &'static str,
-    child: Child,
+struct ScopedEnvVar {
+    key: &'static str,
+    previous: Option<String>,
 }
 
-impl ProxyChild {
-    fn spawn(
-        mode: &'static str,
-        config: &Path,
-        key_env: &str,
-        key: &str,
-    ) -> Result<Self, Box<dyn Error>> {
-        let bin = std::env::var("CARGO_BIN_EXE_tcpao-proxy")?;
-        let child = Command::new(bin)
-            .arg("--mode")
-            .arg(mode)
-            .arg("--config")
-            .arg(config)
-            .env(key_env, key)
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .spawn()?;
+impl ScopedEnvVar {
+    fn set(key: &'static str, value: Option<&str>) -> Self {
+        let previous = std::env::var(key).ok();
 
-        Ok(Self { mode, child })
-    }
-
-    fn ensure_running(&mut self) -> Result<(), Box<dyn Error>> {
-        if let Some(status) = self.child.try_wait()? {
-            return Err(format!(
-                "{0} proxy exited unexpectedly with status {status}",
-                self.mode
-            )
-            .into());
+        match value {
+            Some(v) => std::env::set_var(key, v),
+            None => std::env::remove_var(key),
         }
 
-        Ok(())
+        Self { key, previous }
     }
 }
 
-impl Drop for ProxyChild {
+impl Drop for ScopedEnvVar {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if let Some(v) = &self.previous {
+            std::env::set_var(self.key, v);
+        } else {
+            std::env::remove_var(self.key);
+        }
     }
 }

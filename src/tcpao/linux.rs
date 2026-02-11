@@ -12,7 +12,18 @@ use linux_raw_sys::net;
 use tracing::{debug, info};
 
 #[cfg(target_os = "linux")]
+const TEST_BYPASS_ENV: &str = "TCPAO_PROXY_TEST_NO_AO";
+
+#[cfg(target_os = "linux")]
 pub fn probe_tcpao_support() -> io::Result<()> {
+    if allow_test_bypass() {
+        info!(
+            env = TEST_BYPASS_ENV,
+            "tcp-ao test bypass enabled; treating host as supported"
+        );
+        return Ok(());
+    }
+
     let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0) };
     if fd < 0 {
         return Err(io::Error::last_os_error());
@@ -42,6 +53,16 @@ pub fn apply_outbound_policy(
     policy: &AoPolicyConfig,
     remote: SocketAddr,
 ) -> io::Result<()> {
+    if allow_test_bypass() {
+        info!(
+            env = TEST_BYPASS_ENV,
+            policy = %policy.name,
+            peer = %remote,
+            "tcp-ao test bypass enabled; skipping outbound ao setsockopt"
+        );
+        return Ok(());
+    }
+
     let key = policy_key_bytes(policy)?;
     install_key(socket_fd, policy, remote, &key, true)?;
     set_ao_required(socket_fd, true)?;
@@ -75,6 +96,15 @@ pub fn configure_listener(
     listen_addr: SocketAddr,
     policies: &[AoPolicyConfig],
 ) -> io::Result<()> {
+    if allow_test_bypass() {
+        info!(
+            env = TEST_BYPASS_ENV,
+            listen = %listen_addr,
+            "tcp-ao test bypass enabled; skipping listener ao setup"
+        );
+        return Ok(());
+    }
+
     let family = match listen_addr {
         SocketAddr::V4(_) => libc::AF_INET,
         SocketAddr::V6(_) => libc::AF_INET6,
@@ -124,6 +154,15 @@ pub fn configure_listener(
 
 #[cfg(target_os = "linux")]
 pub fn ensure_inbound_session_has_ao(socket_fd: RawFd, peer: SocketAddr) -> io::Result<()> {
+    if allow_test_bypass() {
+        debug!(
+            env = TEST_BYPASS_ENV,
+            peer = %peer,
+            "tcp-ao test bypass enabled; skipping inbound ao verification"
+        );
+        return Ok(());
+    }
+
     let info = get_ao_info(socket_fd)?;
     if info.ao_required() == 0 {
         return Err(io::Error::new(
@@ -149,6 +188,18 @@ fn policy_matches_family(peer_ip: IpAddr, family: i32) -> bool {
     matches!(
         (peer_ip, family),
         (IpAddr::V4(_), libc::AF_INET) | (IpAddr::V6(_), libc::AF_INET6)
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn allow_test_bypass() -> bool {
+    if !cfg!(debug_assertions) {
+        return false;
+    }
+
+    matches!(
+        std::env::var(TEST_BYPASS_ENV).as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE")
     )
 }
 

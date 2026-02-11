@@ -25,6 +25,6 @@ cargo run -- --mode initiator --config config/example.toml --dry-run
 - `make fmt` for formatting
 - `make lint` for clippy (`-D warnings`)
 - `make test` for unit tests
-- `make test-functional` for end-to-end traffic through two proxy instances (auto-skips if host lacks TCP-AO support/capability; may require `CAP_NET_ADMIN`/root)
+- `make test-functional` for end-to-end traffic through two proxy instances (uses real TCP-AO when available; falls back to debug/test-only no-AO mode if kernel support/capability is unavailable; may require `CAP_NET_ADMIN`/root)
 - `Dockerfile` for containerized builds
 - `scripts/doctor.sh` for host/kernel/tool preflight checks

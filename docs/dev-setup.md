@@ -25,3 +25,4 @@ cargo run -- --mode initiator --config config/example.toml --dry-run
 - TCP-AO provides integrity/authentication, not encryption.
 - Avoid logging key material.
 - Functional AO tests may need elevated privileges (`CAP_NET_ADMIN` or root).
+- Functional test fallback: in debug/test runs only, `TCPAO_PROXY_TEST_NO_AO=1` bypasses AO setsockopt so end-to-end byte forwarding can still be validated on hosts without TCP-AO support.
