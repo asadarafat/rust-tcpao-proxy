@@ -1,7 +1,18 @@
 CARGO ?= cargo
 CONFIG ?= config/example.toml
 
-.PHONY: doctor fmt lint test test-functional dry-run run-initiator run-terminator
+.PHONY: tools doctor fmt lint test test-functional dry-run run-initiator run-terminator
+
+tools:
+	@if ! command -v rustup >/dev/null 2>&1; then \
+		echo "rustup not found; installing..."; \
+		curl https://sh.rustup.rs -sSf | sh -s -- -y; \
+	fi
+	@. "$$HOME/.cargo/env" && \
+		rustup toolchain install stable && \
+		rustup component add rustfmt clippy && \
+		rustc --version && \
+		cargo --version
 
 doctor:
 	./scripts/doctor.sh

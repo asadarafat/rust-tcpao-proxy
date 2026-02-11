@@ -9,6 +9,7 @@
 ## 2) Bootstrap
 
 ```bash
+make tools
 make doctor
 cargo build
 ```
