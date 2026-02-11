@@ -34,6 +34,7 @@ make test-functional
   - Set `REQUIRE_BIDIRECTIONAL_TRAFFIC=1` for strict reverse-direction validation; with this enabled, backend mode defaults to `BACKEND_MODE=echo` so both `from-goBGP-to-goBMP` and `from-goBMP-to-goBGP` data paths are validated.
   - Validation output now also prints effective runtime config context for goBGP/goBMP and tcpao-proxy (config files + process command lines inside both containers).
   - During execution, it prints a `traffic injection plan` section describing exactly how payload is injected and what path/direction is being validated.
+- `make test-validation-tcpao-proxy-bgp-route` to redeploy the lab, start goBGP BMP export + goBMP file dump, inject a route in goBGP, and verify the prefix is received by goBMP over the AO-protected path.
 - `make tools` for Rust tooling bootstrap via Fedora `dnf` (uses `~/proxy` + `sudo_dnf` if available)
 - `Dockerfile` for containerized builds
 - `scripts/doctor.sh` for host/kernel/tool preflight checks

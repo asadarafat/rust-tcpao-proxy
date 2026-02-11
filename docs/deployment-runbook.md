@@ -134,6 +134,12 @@ Strict bidirectional data validation (both `from-goBGP-to-goBMP` and `from-goBMP
 REQUIRE_BIDIRECTIONAL_TRAFFIC=1 make test-validation-tcpao-proxy
 ```
 
+Route-based validation via goBGP -> BMP -> goBMP:
+
+```bash
+make test-validation-tcpao-proxy-bgp-route
+```
+
 Notes:
 
 - This target runs `containerlab deploy -t deploy/containerlab/tcpao-bmp.clab.yml --reconfigure`
@@ -142,6 +148,7 @@ Notes:
 - It also prints goBGP/goBMP runtime config context (sidecar config, app config candidates, and process command lines) from both containers
 - It prints a `traffic injection plan` section that explains the injection method and expected direction checks for the current mode
 - Docker/containerlab privileges are required (`sudo -E` may be needed)
+- Route-based target injects `ROUTE_PREFIX` (default `203.0.113.0/24`) into goBGP and verifies that prefix appears in goBMP dump output
 
 ## 7) Negative test (fail closed)
 

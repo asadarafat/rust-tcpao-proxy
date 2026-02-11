@@ -1,7 +1,7 @@
 CARGO ?= cargo
 CONFIG ?= config/example.toml
 
-.PHONY: tools doctor fmt lint test test-functional test-functional-strict test-validation-tcpao-proxy dry-run run-initiator run-terminator
+.PHONY: tools doctor fmt lint test test-functional test-functional-strict test-validation-tcpao-proxy test-validation-tcpao-proxy-bgp-route dry-run run-initiator run-terminator
 
 tools:
 	@set -e; \
@@ -39,6 +39,9 @@ test-functional-strict:
 
 test-validation-tcpao-proxy:
 	./scripts/test-validation-tcpao-proxy.sh
+
+test-validation-tcpao-proxy-bgp-route:
+	./scripts/test-validation-tcpao-proxy-bgp-route.sh
 
 dry-run:
 	$(CARGO) run -- --mode initiator --config $(CONFIG) --dry-run
