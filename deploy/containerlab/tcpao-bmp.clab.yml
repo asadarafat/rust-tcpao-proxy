@@ -32,7 +32,7 @@ topology:
         # Safe default keeps container up; replace with real app startup command.
         APP_CMD: "sleep infinity"
         # Example:
-        # APP_CMD: "/gobmp --listen 127.0.0.1:11019"
+        # APP_CMD: "/gobmp --source-port 11019"
       exec:
         - ip addr add 10.10.10.2/30 dev eth1
         - ip link set eth1 up

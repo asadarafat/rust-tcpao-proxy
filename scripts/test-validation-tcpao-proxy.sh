@@ -57,6 +57,8 @@ start_terminator_backend_if_needed() {
   local forward_plain="$2"
   local forward_port="$3"
   local backend_log="/tmp/tcpao-validation-backend.log"
+  local backend_bin=""
+  local backend_cmd=""
   local waited=0
 
   if is_listening_on_port "$term_container" "$forward_port"; then
@@ -66,12 +68,23 @@ start_terminator_backend_if_needed() {
 
   step "no backend listener on $forward_plain; starting temporary /gobmp backend"
   if docker exec "$term_container" bash -lc "test -x /gobmp"; then
-    docker exec "$term_container" bash -lc "nohup /gobmp --listen $forward_plain >$backend_log 2>&1 &"
+    backend_bin="/gobmp"
   elif docker exec "$term_container" bash -lc "command -v gobmp >/dev/null 2>&1"; then
-    docker exec "$term_container" bash -lc "nohup gobmp --listen $forward_plain >$backend_log 2>&1 &"
+    backend_bin="gobmp"
   else
     fail "forward backend is not listening and gobmp binary was not found in $term_container; set APP_CMD in topology or install a listener on $forward_plain"
   fi
+
+  if docker exec "$term_container" bash -lc "$backend_bin --help 2>&1 | grep -q -- '--listen'"; then
+    backend_cmd="$backend_bin --listen $forward_plain"
+  elif docker exec "$term_container" bash -lc "$backend_bin --help 2>&1 | grep -q -- '--source-port'"; then
+    backend_cmd="$backend_bin --source-port $forward_port"
+  else
+    fail "gobmp in $term_container does not support --listen or --source-port; set APP_CMD manually for a backend on $forward_plain"
+  fi
+
+  step "starting temporary gobmp backend: $backend_cmd"
+  docker exec "$term_container" bash -lc "nohup $backend_cmd >$backend_log 2>&1 &"
 
   while (( waited < MAX_WAIT_SECS )); do
     if is_listening_on_port "$term_container" "$forward_port"; then
