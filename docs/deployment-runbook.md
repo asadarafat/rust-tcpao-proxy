@@ -140,6 +140,7 @@ Notes:
 - It injects payload through the initiator sidecar and validates AO/traffic evidence in both container logs
 - With `REQUIRE_BIDIRECTIONAL_TRAFFIC=1`, backend mode defaults to `echo` (`BACKEND_MODE=auto`) so reverse-direction bytes are required
 - It also prints goBGP/goBMP runtime config context (sidecar config, app config candidates, and process command lines) from both containers
+- It prints a `traffic injection plan` section that explains the injection method and expected direction checks for the current mode
 - Docker/containerlab privileges are required (`sudo -E` may be needed)
 
 ## 7) Negative test (fail closed)

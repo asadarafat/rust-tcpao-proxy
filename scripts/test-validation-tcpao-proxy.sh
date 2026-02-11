@@ -26,6 +26,10 @@ warn() {
   echo "[warn] $*"
 }
 
+info() {
+  echo "[info] $*"
+}
+
 fail() {
   echo "[fail] $*" >&2
   exit 1
@@ -250,6 +254,23 @@ done
   docker exec "$term_container" bash -lc "ps -ef | grep -E '[t]cpao-proxy|[g]obmp' || true"
 }
 
+explain_injection_plan() {
+  local host="$1"
+  local port="$2"
+  local require_bidirectional="$3"
+  local backend_mode="$4"
+
+  step "traffic injection plan"
+  info "$DIRECTION_GOBGP_TO_GOBMP target: ${host}:${port} (goBGP-side plain listener)"
+  info "wire path under test: goBGP-side proxy -> TCP-AO (10.10.10.1<->10.10.10.2:1790) -> goBMP-side proxy"
+  if is_true "$require_bidirectional"; then
+    info "mode: strict bidirectional; injector sends payload and requires identical echoed reply"
+    info "backend mode: ${backend_mode} (must return data to validate $DIRECTION_GOBMP_TO_GOBGP)"
+  else
+    info "mode: one-way; injector sends payload and closes socket"
+  fi
+}
+
 extract_latest_counter() {
   local logs="$1"
   local field="$2"
@@ -343,6 +364,7 @@ main() {
   wait_for_listen_port "$term_container" "$LISTEN_AO_PORT" "goBMP-side proxy"
   start_terminator_backend_if_needed "$term_container" "$FORWARD_PLAIN" "$forward_port" "$backend_mode"
   dump_runtime_configs "$init_container" "$term_container"
+  explain_injection_plan "$plain_host" "$plain_port" "$REQUIRE_BIDIRECTIONAL_TRAFFIC" "$backend_mode"
 
   inject_test_payload "$init_container" "$plain_host" "$plain_port" "$REQUIRE_BIDIRECTIONAL_TRAFFIC"
   wait_for_connection_closed_stats "$init_container" "$term_container"
