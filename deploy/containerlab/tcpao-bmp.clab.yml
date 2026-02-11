@@ -1,0 +1,37 @@
+name: tcpao-bmp
+topology:
+  nodes:
+    gobgp-initiator-with-tcpao-sidecar:
+      kind: linux
+      image: ghcr.io/asadarafat/gobgp-stunnel-tcpao:latest
+      env:
+        TCPAO_KEY: REPLACE_WITH_SHARED_SECRET
+        KEY_ID: "1"
+        LISTEN_PLAIN: 127.0.0.1:5000
+        REMOTE_AO: 10.10.10.2:1790
+        PEER_IP: 10.10.10.2
+        PEER_PORT: "1790"
+        # Override APP_CMD based on the gobgp-stunnel image internals.
+        # APP_CMD: "stunnel /etc/stunnel/stunnel.conf & gobgpd -f /etc/gobgp/gobgp.conf"
+      exec:
+        - ip addr add 10.10.10.1/30 dev eth1
+        - ip link set eth1 up
+
+    gobmp-terminator-with-tcpao-sidecar:
+      kind: linux
+      image: ghcr.io/asadarafat/gobmp-tls-tcpao:latest
+      env:
+        TCPAO_KEY: REPLACE_WITH_SHARED_SECRET
+        KEY_ID: "1"
+        LISTEN_AO: 0.0.0.0:1790
+        FORWARD_PLAIN: 127.0.0.1:11019
+        PEER_IP: 10.10.10.1
+        PEER_PORT: "1790"
+        # Override APP_CMD if your gobmp image needs explicit flags.
+        # APP_CMD: "/gobmp --listen 127.0.0.1:11019"
+      exec:
+        - ip addr add 10.10.10.2/30 dev eth1
+        - ip link set eth1 up
+
+  links:
+    - endpoints: ["gobgp-initiator-with-tcpao-sidecar:eth1", "gobmp-terminator-with-tcpao-sidecar:eth1"]

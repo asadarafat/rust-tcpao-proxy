@@ -33,3 +33,4 @@ make test-functional
 - `make tools` for Rust tooling bootstrap via Fedora `dnf` (uses `~/proxy` + `sudo_dnf` if available)
 - `Dockerfile` for containerized builds
 - `scripts/doctor.sh` for host/kernel/tool preflight checks
+- `docs/deployment-runbook.md` and `deploy/` for combined sidecar image deployment patterns

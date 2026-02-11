@@ -1,0 +1,19 @@
+[global]
+log_format = "json"
+idle_timeout_secs = 120
+tcp_keepalive = true
+keepalive_time_secs = 30
+keepalive_intvl_secs = 10
+keepalive_probes = 3
+
+[initiator]
+listen_plain = "${LISTEN_PLAIN}"
+remote_ao = "${REMOTE_AO}"
+
+[[ao_policy]]
+name = "bmp-wire"
+peer_ip = "${PEER_IP}"
+peer_port = ${PEER_PORT}
+keyid = ${KEY_ID}
+mac_alg = "hmac-sha256"
+key_source = "env:TCPAO_KEY"
