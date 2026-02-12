@@ -23,6 +23,75 @@ make test
 make test-functional
 ```
 
+## BMP TCP-AO Use Case
+
+This project implements a practical deployment model aligned with `draft-ietf-grow-bmp-tcp-ao-03`: protect the BMP transport leg with TCP-AO while keeping BMP applications operationally simple.
+
+In this lab, goBGP acts as the BMP producer and goBMP as the collector. Adding Linux TCP-AO socket policy handling directly inside those Go applications would require invasive kernel/socket control paths in software that is primarily focused on routing and telemetry logic.
+
+To avoid that, TCP-AO responsibility is isolated in a dedicated Rust sidecar proxy. The sidecar handles AO policy installation, AO-required listener behavior, and inbound AO verification through native Linux socket integration. goBGP and goBMP continue to use plain local TCP to the sidecar.
+
+The result is a clean separation of concerns: AO is enforced on the wire path, and application behavior remains stable.
+
+### Deployment Pattern: Docker "Baked Sidecar" (Single Container)
+
+The deployment pattern is intentionally straightforward:
+
+- Image A: `goBGP + tcpao-proxy (initiator)`
+- Image B: `goBMP + tcpao-proxy (terminator)`
+
+Inside the pair, traffic flows like this:
+
+1. goBGP sends BMP to local initiator proxy (`127.0.0.1:5000`).
+2. Initiator proxy opens wire connection to terminator proxy (`10.10.10.2:1790`) with TCP-AO.
+3. Terminator proxy verifies AO and forwards plain TCP locally to goBMP backend (`127.0.0.1:11019`).
+
+This keeps AO enforcement on the inter-node path while preserving application-level simplicity inside each container.
+
+## Route Validation Workflow
+
+For iterative testing, deployment and validation are separated.
+
+Deploy only:
+
+```bash
+make test-validation-tcpao-proxy-bgp-route-deploy
+```
+
+This runs:
+
+```make
+containerlab deploy -t deploy/containerlab/tcpao-bmp.clab.yml --reconfigure
+```
+
+This redeploys the lab to a known-good state and exits.
+
+Validate only (assumes the lab is already running):
+
+```bash
+make test-validation-tcpao-proxy-bgp-route-validate-only
+```
+
+This runs:
+
+```make
+MAX_WAIT_SECS=$${MAX_WAIT_SECS:-30} JQ_INSTALL_TIMEOUT_SECS=$${JQ_INSTALL_TIMEOUT_SECS:-20} DEPLOY_LAB=0 ./scripts/test-validation-tcpao-proxy-bgp-route.sh
+```
+
+With `DEPLOY_LAB=0`, the script skips redeployment and performs validation directly:
+
+1. Confirms clab containers are running and listeners are up.
+2. Starts/ensures goBMP backend dump path.
+3. Starts goBGP with BMP export pointed at the local initiator proxy.
+4. Injects route (`203.0.113.0/24` by default) into goBGP.
+5. Verifies the route appears in goBMP dump output.
+6. Verifies AO policy logs and forwarded-byte evidence on both proxies.
+
+For a single-command flow, `make test-validation-tcpao-proxy-bgp-route` still performs deploy + validate in one run.
+
+Containerlab demo:
+https://github.com/user-attachments/assets/ca14fe7a-12df-4914-8e36-98ea88d9101a
+
 ## Tooling
 
 - `make fmt` for formatting
