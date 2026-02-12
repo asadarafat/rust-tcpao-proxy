@@ -315,6 +315,29 @@ wait_for_connection_closed_stats() {
   fail "timed out waiting for connection-closed stats on both proxies"
 }
 
+show_gobmp_route_evidence_pretty() {
+  local term_container="$1"
+  local route="$2"
+  local route_ip="${route%/*}"
+  local route_len="${route#*/}"
+
+  step "showing goBMP route evidence (pretty via jq)"
+  run_in_container "$term_container" "cat $GOBMP_DUMP_PATH 2>/dev/null || true" \
+    | jq -R -s --arg prefix "$route_ip" --argjson plen "$route_len" '
+        split("\n")
+        | map(select(length > 0) | (try fromjson catch empty))
+        | map(
+            . as $outer
+            | (try ($outer.value | @base64d | fromjson) catch empty) as $decoded
+            | select($decoded.prefix == $prefix and $decoded.prefix_len == $plen)
+            | {
+                type: $outer.type,
+                decoded: $decoded
+              }
+          )
+      ' || true
+}
+
 assert_log_contains() {
   local logs="$1"
   local pattern="$2"
@@ -360,6 +383,7 @@ main() {
   require_cmd awk
   require_cmd grep
   require_cmd bash
+  require_cmd jq
 
   [[ -f "$TOPOLOGY" ]] || fail "topology file not found: $TOPOLOGY"
   if ! docker ps >/dev/null 2>&1; then
@@ -418,19 +442,7 @@ main() {
   (( term_bytes_up > 0 )) || fail "goBMP-side proxy has no forwarded bytes (bytes_up=$term_bytes_up)"
   ok "forwarded bytes observed (goBGP bytes_up=$init_bytes_up, goBMP bytes_up=$term_bytes_up)"
 
-  step "showing goBMP route evidence"
-  run_in_container "$term_container" "tail -n 40 $GOBMP_DUMP_PATH 2>/dev/null || true"
-  if command -v base64 >/dev/null 2>&1; then
-    run_in_container "$term_container" "cat $GOBMP_DUMP_PATH 2>/dev/null || true" \
-      | sed -n -E 's/.*\"value\":\"([^\"]+)\".*/\1/p' \
-      | while IFS= read -r v; do
-          [[ -n "$v" ]] || continue
-          printf '%s' "$v" | base64 -d 2>/dev/null || true
-          printf '\n'
-        done \
-      | grep -E "\"prefix\":\"${ROUTE_PREFIX%/*}\"|\"prefix_len\":${ROUTE_PREFIX#*/}" \
-      | tail -n 20 || true
-  fi
+  show_gobmp_route_evidence_pretty "$term_container" "$ROUTE_PREFIX"
 
   ok "test-validation-tcpao-proxy-bgp-route passed"
 }

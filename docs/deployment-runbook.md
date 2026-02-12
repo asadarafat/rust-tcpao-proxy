@@ -149,6 +149,7 @@ Notes:
 - It prints a `traffic injection plan` section that explains the injection method and expected direction checks for the current mode
 - Docker/containerlab privileges are required (`sudo -E` may be needed)
 - Route-based target injects `ROUTE_PREFIX` (default `203.0.113.0/24`) into goBGP and verifies that prefix appears in goBMP dump output
+- Route evidence is decoded and printed as pretty JSON using `jq`
 
 ## 7) Negative test (fail closed)
 
