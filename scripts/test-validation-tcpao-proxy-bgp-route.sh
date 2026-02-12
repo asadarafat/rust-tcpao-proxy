@@ -68,6 +68,53 @@ run_in_container() {
   docker exec "$container" bash -lc "$cmd"
 }
 
+dump_contains_route() {
+  local dump_content="$1"
+  local route="$2"
+  local route_ip="$3"
+  local route_len="$4"
+  local encoded=""
+  local decoded=""
+
+  if [[ -z "$dump_content" ]]; then
+    return 1
+  fi
+
+  if printf '%s\n' "$dump_content" | grep -q "$route"; then
+    return 0
+  fi
+
+  if printf '%s\n' "$dump_content" | grep -q "\"prefix\":\"$route_ip\"" &&
+    printf '%s\n' "$dump_content" | grep -q "\"prefix_len\":$route_len"; then
+    return 0
+  fi
+
+  if ! command -v base64 >/dev/null 2>&1; then
+    return 1
+  fi
+
+  encoded="$(printf '%s\n' "$dump_content" | sed -n -E 's/.*"value":"([^"]+)".*/\1/p')"
+  [[ -n "$encoded" ]] || return 1
+
+  decoded="$(
+    while IFS= read -r v; do
+      [[ -n "$v" ]] || continue
+      printf '%s' "$v" | base64 -d 2>/dev/null || true
+      printf '\n'
+    done <<< "$encoded"
+  )"
+
+  if printf '%s\n' "$decoded" | grep -q "$route"; then
+    return 0
+  fi
+  if printf '%s\n' "$decoded" | grep -q "\"prefix\":\"$route_ip\"" &&
+    printf '%s\n' "$decoded" | grep -q "\"prefix_len\":$route_len"; then
+    return 0
+  fi
+
+  return 1
+}
+
 run_first_success() {
   local container="$1"
   local desc="$2"
@@ -218,11 +265,19 @@ verify_route_exists_in_gobgp() {
 wait_for_route_in_gobmp_dump() {
   local term_container="$1"
   local route="$2"
+  local route_ip="${route%/*}"
+  local route_len="${route#*/}"
+  local dump_content=""
   local waited=0
+
+  if [[ "$route_ip" == "$route" || -z "$route_len" ]]; then
+    fail "ROUTE_PREFIX must be CIDR (for example 203.0.113.0/24), got: $route"
+  fi
 
   step "waiting for goBMP to receive route: $route"
   while (( waited < MAX_WAIT_SECS )); do
-    if run_in_container "$term_container" "test -f $GOBMP_DUMP_PATH && grep -q '$route' $GOBMP_DUMP_PATH"; then
+    dump_content="$(run_in_container "$term_container" "cat $GOBMP_DUMP_PATH 2>/dev/null || true")"
+    if dump_contains_route "$dump_content" "$route" "$route_ip" "$route_len"; then
       ok "goBMP dump file contains route: $route"
       return 0
     fi
@@ -364,7 +419,18 @@ main() {
   ok "forwarded bytes observed (goBGP bytes_up=$init_bytes_up, goBMP bytes_up=$term_bytes_up)"
 
   step "showing goBMP route evidence"
-  run_in_container "$term_container" "grep -n '$ROUTE_PREFIX' $GOBMP_DUMP_PATH | tail -n 20"
+  run_in_container "$term_container" "tail -n 40 $GOBMP_DUMP_PATH 2>/dev/null || true"
+  if command -v base64 >/dev/null 2>&1; then
+    run_in_container "$term_container" "cat $GOBMP_DUMP_PATH 2>/dev/null || true" \
+      | sed -n -E 's/.*\"value\":\"([^\"]+)\".*/\1/p' \
+      | while IFS= read -r v; do
+          [[ -n "$v" ]] || continue
+          printf '%s' "$v" | base64 -d 2>/dev/null || true
+          printf '\n'
+        done \
+      | grep -E "\"prefix\":\"${ROUTE_PREFIX%/*}\"|\"prefix_len\":${ROUTE_PREFIX#*/}" \
+      | tail -n 20 || true
+  fi
 
   ok "test-validation-tcpao-proxy-bgp-route passed"
 }
