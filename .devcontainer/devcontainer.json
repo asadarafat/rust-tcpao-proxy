@@ -1,11 +1,19 @@
 {
-  "name": "rust-tcpao-proxy-fedora43-vanilla",
+  "name": "rust-tcpao-proxy-fedora43",
   "build": {
     "dockerfile": "Dockerfile",
     "context": ".."
   },
   "remoteUser": "root",
   "init": true,
+  "privileged": true,
+  "containerEnv": {
+    "CLAB_LABDIR_BASE": "/workspaces/.clab",
+    "DOCKER_BUILDKIT": "1",
+    "COMPOSE_DOCKER_CLI_BUILD": "1"
+  },
+  "postCreateCommand": "bash .devcontainer/scripts/post-create.sh || true",
+  "postStartCommand": "bash .devcontainer/scripts/post-start.sh || true",
   "customizations": {
     "vscode": {
       "extensions": [
