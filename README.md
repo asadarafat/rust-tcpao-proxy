@@ -1,5 +1,3 @@
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/asadarafat/rust-tcpao-proxy)
-
 # tcpao-proxy (PoC scaffold)
 
 Rust sidecar proxy scaffold for protecting the wire leg of BMP sessions with TCP-AO.
@@ -124,3 +122,4 @@ Important: TCP-AO behavior still depends on host kernel support.
 - `docs/deployment-runbook.md`: build, deploy, verify, and troubleshooting procedures.
 - `deploy/`: containerlab topology and image packaging assets.
 - `scripts/doctor.sh`: host and kernel preflight checks for local environments.
+- The complete and continuously updated documentation is hosted on DeepWiki: [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/asadarafat/rust-tcpao-proxy)
