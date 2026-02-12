@@ -20,7 +20,8 @@
       "extensions": [
         "rust-lang.rust-analyzer",
         "tamasfe.even-better-toml",
-        "ms-azuretools.vscode-docker"
+        "ms-azuretools.vscode-docker",
+        "srl-labs.vscode-containerlab"
       ]
     }
   }
