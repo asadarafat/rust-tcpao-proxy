@@ -14,4 +14,6 @@ docker --version
 
 if ! docker info >/dev/null 2>&1; then
   echo "[devcontainer] warning: docker daemon is not ready yet; run: bash .devcontainer/scripts/start-docker.sh" >&2
+else
+  echo "[devcontainer] docker storage driver: $(docker info --format '{{.Driver}}')"
 fi

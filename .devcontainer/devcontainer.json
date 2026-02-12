@@ -10,7 +10,8 @@
   "containerEnv": {
     "CLAB_LABDIR_BASE": "/workspaces/.clab",
     "DOCKER_BUILDKIT": "1",
-    "COMPOSE_DOCKER_CLI_BUILD": "1"
+    "COMPOSE_DOCKER_CLI_BUILD": "1",
+    "DOCKER_STORAGE_DRIVER": "vfs"
   },
   "postCreateCommand": "bash .devcontainer/scripts/post-create.sh || true",
   "postStartCommand": "bash .devcontainer/scripts/post-start.sh || true",
