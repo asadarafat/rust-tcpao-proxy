@@ -35,8 +35,8 @@ make test-functional
   - Validation output now also prints effective runtime config context for goBGP/goBMP and tcpao-proxy (config files + process command lines inside both containers).
   - During execution, it prints a `traffic injection plan` section describing exactly how payload is injected and what path/direction is being validated.
 - `make test-validation-tcpao-proxy-bgp-route` to redeploy the lab, start goBGP BMP export + goBMP file dump, inject a route in goBGP, and verify the prefix is received by goBMP over the AO-protected path.
-  - Route evidence is pretty-printed with `jq`; if `jq` is missing the script attempts auto-install with timeout (`JQ_INSTALL_TIMEOUT_SECS`, default `20`), and falls back to non-pretty evidence output if install is not possible.
-  - This make target embeds `MAX_WAIT_SECS=30` by default (you can still override by exporting `MAX_WAIT_SECS`).
+  - Route evidence is pretty-printed with `jq`; if `jq` is missing the script attempts auto-install and falls back to non-pretty evidence output if install is not possible.
+  - This make target embeds `MAX_WAIT_SECS=30` and `JQ_INSTALL_TIMEOUT_SECS=20` by default (you can still override by exporting either variable).
 - `make tools` for Rust tooling bootstrap via Fedora `dnf` (uses `~/proxy` + `sudo_dnf` if available)
 - `Dockerfile` for containerized builds
 - `scripts/doctor.sh` for host/kernel/tool preflight checks

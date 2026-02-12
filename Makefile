@@ -41,7 +41,7 @@ test-validation-tcpao-proxy:
 	./scripts/test-validation-tcpao-proxy.sh
 
 test-validation-tcpao-proxy-bgp-route:
-	MAX_WAIT_SECS=$${MAX_WAIT_SECS:-30} ./scripts/test-validation-tcpao-proxy-bgp-route.sh
+	MAX_WAIT_SECS=$${MAX_WAIT_SECS:-30} JQ_INSTALL_TIMEOUT_SECS=$${JQ_INSTALL_TIMEOUT_SECS:-20} ./scripts/test-validation-tcpao-proxy-bgp-route.sh
 
 dry-run:
 	$(CARGO) run -- --mode initiator --config $(CONFIG) --dry-run
