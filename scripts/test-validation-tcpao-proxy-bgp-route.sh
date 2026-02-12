@@ -14,6 +14,8 @@ GOBGP_CONFIG_PATH="${GOBGP_CONFIG_PATH:-/tmp/gobgp-bmp-route-validation.conf}"
 GOBGP_LOG_PATH="${GOBGP_LOG_PATH:-/tmp/tcpao-bgp-route-gobgp.log}"
 GOBMP_LOG_PATH="${GOBMP_LOG_PATH:-/tmp/tcpao-bgp-route-gobmp.log}"
 GOBMP_DUMP_PATH="${GOBMP_DUMP_PATH:-/tmp/tcpao-bgp-route-messages.json}"
+JQ_INSTALL_LOG="${JQ_INSTALL_LOG:-/tmp/tcpao-bgp-route-jq-install.log}"
+USE_JQ=0
 
 step() {
   echo "[step] $*"
@@ -25,6 +27,10 @@ info() {
 
 ok() {
   echo "[ok] $*"
+}
+
+warn() {
+  echo "[warn] $*"
 }
 
 fail() {
@@ -66,6 +72,56 @@ run_in_container() {
   local container="$1"
   local cmd="$2"
   docker exec "$container" bash -lc "$cmd"
+}
+
+run_host_privileged() {
+  local cmd="$1"
+  if [[ "$(id -u)" -eq 0 ]]; then
+    bash -lc "$cmd"
+    return $?
+  fi
+  if command -v sudo >/dev/null 2>&1; then
+    sudo -E bash -lc "$cmd"
+    return $?
+  fi
+  return 1
+}
+
+ensure_jq_or_fallback() {
+  local install_cmd=""
+
+  if command -v jq >/dev/null 2>&1; then
+    USE_JQ=1
+    info "jq available; route evidence will be pretty-printed"
+    return 0
+  fi
+
+  step "jq not found on host; attempting auto-install"
+  if command -v dnf >/dev/null 2>&1; then
+    install_cmd="dnf install -y jq"
+  elif command -v yum >/dev/null 2>&1; then
+    install_cmd="yum install -y jq"
+  elif command -v apt-get >/dev/null 2>&1; then
+    install_cmd="apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y jq"
+  elif command -v microdnf >/dev/null 2>&1; then
+    install_cmd="microdnf install -y jq"
+  fi
+
+  if [[ -z "$install_cmd" ]]; then
+    warn "no supported package manager found; falling back to non-pretty route evidence output"
+    USE_JQ=0
+    return 0
+  fi
+
+  if run_host_privileged "$install_cmd" >"$JQ_INSTALL_LOG" 2>&1 && command -v jq >/dev/null 2>&1; then
+    USE_JQ=1
+    ok "installed jq; route evidence will be pretty-printed"
+    return 0
+  fi
+
+  warn "jq auto-install failed; falling back to non-pretty route evidence output"
+  warn "jq install diagnostics: $JQ_INSTALL_LOG"
+  USE_JQ=0
 }
 
 dump_contains_route() {
@@ -338,6 +394,27 @@ show_gobmp_route_evidence_pretty() {
       ' || true
 }
 
+show_gobmp_route_evidence_fallback() {
+  local term_container="$1"
+  local route="$2"
+  local route_ip="${route%/*}"
+  local route_len="${route#*/}"
+
+  step "showing goBMP route evidence (fallback, non-pretty)"
+  run_in_container "$term_container" "tail -n 40 $GOBMP_DUMP_PATH 2>/dev/null || true"
+  if command -v base64 >/dev/null 2>&1; then
+    run_in_container "$term_container" "cat $GOBMP_DUMP_PATH 2>/dev/null || true" \
+      | sed -n -E 's/.*\"value\":\"([^\"]+)\".*/\1/p' \
+      | while IFS= read -r v; do
+          [[ -n "$v" ]] || continue
+          printf '%s' "$v" | base64 -d 2>/dev/null || true
+          printf '\n'
+        done \
+      | grep -E "\"prefix\":\"${route_ip}\"|\"prefix_len\":${route_len}" \
+      | tail -n 20 || true
+  fi
+}
+
 assert_log_contains() {
   local logs="$1"
   local pattern="$2"
@@ -383,7 +460,7 @@ main() {
   require_cmd awk
   require_cmd grep
   require_cmd bash
-  require_cmd jq
+  ensure_jq_or_fallback
 
   [[ -f "$TOPOLOGY" ]] || fail "topology file not found: $TOPOLOGY"
   if ! docker ps >/dev/null 2>&1; then
@@ -442,7 +519,11 @@ main() {
   (( term_bytes_up > 0 )) || fail "goBMP-side proxy has no forwarded bytes (bytes_up=$term_bytes_up)"
   ok "forwarded bytes observed (goBGP bytes_up=$init_bytes_up, goBMP bytes_up=$term_bytes_up)"
 
-  show_gobmp_route_evidence_pretty "$term_container" "$ROUTE_PREFIX"
+  if (( USE_JQ == 1 )); then
+    show_gobmp_route_evidence_pretty "$term_container" "$ROUTE_PREFIX"
+  else
+    show_gobmp_route_evidence_fallback "$term_container" "$ROUTE_PREFIX"
+  fi
 
   ok "test-validation-tcpao-proxy-bgp-route passed"
 }
