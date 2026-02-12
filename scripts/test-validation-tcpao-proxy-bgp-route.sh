@@ -15,6 +15,7 @@ GOBGP_LOG_PATH="${GOBGP_LOG_PATH:-/tmp/tcpao-bgp-route-gobgp.log}"
 GOBMP_LOG_PATH="${GOBMP_LOG_PATH:-/tmp/tcpao-bgp-route-gobmp.log}"
 GOBMP_DUMP_PATH="${GOBMP_DUMP_PATH:-/tmp/tcpao-bgp-route-messages.json}"
 JQ_INSTALL_LOG="${JQ_INSTALL_LOG:-/tmp/tcpao-bgp-route-jq-install.log}"
+JQ_INSTALL_TIMEOUT_SECS="${JQ_INSTALL_TIMEOUT_SECS:-20}"
 USE_JQ=0
 
 step() {
@@ -89,6 +90,8 @@ run_host_privileged() {
 
 ensure_jq_or_fallback() {
   local install_cmd=""
+  local install_cmd_escaped=""
+  local rc=0
 
   if command -v jq >/dev/null 2>&1; then
     USE_JQ=1
@@ -113,13 +116,25 @@ ensure_jq_or_fallback() {
     return 0
   fi
 
-  if run_host_privileged "$install_cmd" >"$JQ_INSTALL_LOG" 2>&1 && command -v jq >/dev/null 2>&1; then
+  install_cmd_escaped="$(printf '%q' "$install_cmd")"
+  if command -v timeout >/dev/null 2>&1; then
+    run_host_privileged "timeout ${JQ_INSTALL_TIMEOUT_SECS}s sh -c ${install_cmd_escaped}" >"$JQ_INSTALL_LOG" 2>&1 || rc=$?
+  else
+    warn "timeout command not found on host; jq auto-install will run without timeout"
+    run_host_privileged "$install_cmd" >"$JQ_INSTALL_LOG" 2>&1 || rc=$?
+  fi
+
+  if (( rc == 0 )) && command -v jq >/dev/null 2>&1; then
     USE_JQ=1
     ok "installed jq; route evidence will be pretty-printed"
     return 0
   fi
 
-  warn "jq auto-install failed; falling back to non-pretty route evidence output"
+  if (( rc == 124 )); then
+    warn "jq auto-install timed out after ${JQ_INSTALL_TIMEOUT_SECS}s; falling back to non-pretty route evidence output"
+  else
+    warn "jq auto-install failed; falling back to non-pretty route evidence output"
+  fi
   warn "jq install diagnostics: $JQ_INSTALL_LOG"
   USE_JQ=0
 }
