@@ -6,9 +6,14 @@ Rust sidecar proxy scaffold for protecting the wire leg of BMP sessions with TCP
 
 This project implements a practical deployment model aligned with `draft-ietf-grow-bmp-tcp-ao-03`: protect the BMP transport leg with TCP-AO while keeping BMP applications operationally simple.
 
-In this lab, goBGP is the BMP producer and goBMP is the collector. Instead of embedding low-level Linux TCP-AO socket policy logic directly in those Go applications, AO responsibilities are isolated in a Rust sidecar proxy that uses native Linux socket hooks.
+In this repository, there is a containerlab topology at `deploy/containerlab/tcpao-bmp.clab.yml`. It creates two connected nodes over `10.10.10.0/30`:
 
-The result is clean separation of concerns: AO on the wire path, minimal disruption to application logic.
+- `gobgp-initiator-with-tcpao-sidecar` (`10.10.10.1`)
+- `gobmp-terminator-with-tcpao-sidecar` (`10.10.10.2`)
+
+goBGP is the BMP producer and goBMP is the collector. Instead of embedding low-level Linux TCP-AO socket policy logic directly in those Go applications, AO responsibilities are isolated in a Rust sidecar proxy that uses native Linux socket hooks.
+
+The result is clean separation of concerns: AO enforcement on the wire path, minimal disruption to application logic.
 
 ## Try It First (Fast Path)
 
@@ -49,11 +54,16 @@ Docker baked sidecar pattern (single container image per role):
 - Image A: `goBGP + tcpao-proxy (initiator)`
 - Image B: `goBMP + tcpao-proxy (terminator)`
 
-Traffic path:
+Each image contains both the application binary and `tcpao-proxy` in the same container (shared network namespace). The proxy mode and endpoints are configured via environment variables from the containerlab topology.
 
-1. goBGP -> initiator plain listener (`127.0.0.1:5000`)
-2. initiator -> terminator wire leg with TCP-AO (`10.10.10.2:1790`)
-3. terminator -> goBMP backend plain TCP (`127.0.0.1:11019`)
+The images also support an application command (`APP_CMD`) so the app and sidecar can run together in one container process model.
+
+Traffic and networking path:
+
+1. goBGP (inside initiator container) connects to local proxy listener at `127.0.0.1:5000` (`LISTEN_PLAIN`).
+2. Initiator proxy opens outbound AO-protected TCP to `10.10.10.2:1790` (`REMOTE_AO`) over the inter-node link.
+3. Terminator proxy listens with AO policy on `0.0.0.0:1790` (`LISTEN_AO`) and accepts wire traffic.
+4. Terminator proxy forwards decrypted/plain stream locally to `127.0.0.1:11019` (`FORWARD_PLAIN`), where goBMP consumes BMP.
 
 ## Validation Commands
 
@@ -107,8 +117,8 @@ Important: TCP-AO behavior still depends on host kernel support.
 - `make test-validation-tcpao-proxy` for payload-injection validation on containerlab topology
 - `make tools` for Rust tooling bootstrap via Fedora `dnf`
 
-More operational details:
+## Further Reading
 
-- `docs/deployment-runbook.md`
-- `deploy/`
-- `scripts/doctor.sh`
+- `docs/deployment-runbook.md`: build, deploy, verify, and troubleshooting procedures.
+- `deploy/`: containerlab topology and image packaging assets.
+- `scripts/doctor.sh`: host and kernel preflight checks for local environments.
