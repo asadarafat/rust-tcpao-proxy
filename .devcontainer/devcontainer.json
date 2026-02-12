@@ -1,0 +1,32 @@
+{
+  "name": "rust-tcpao-proxy-fedora43",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "remoteUser": "root",
+  "init": true,
+  "privileged": true,
+  "runArgs": [
+    "--cgroupns=host"
+  ],
+  "mounts": [
+    "source=tcpao-docker-lib,target=/var/lib/docker,type=volume"
+  ],
+  "containerEnv": {
+    "CLAB_LABDIR_BASE": "/workspaces/.clab",
+    "DOCKER_BUILDKIT": "1",
+    "COMPOSE_DOCKER_CLI_BUILD": "1"
+  },
+  "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
+  "postStartCommand": "bash .devcontainer/scripts/post-start.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  }
+}

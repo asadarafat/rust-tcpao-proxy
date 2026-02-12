@@ -23,6 +23,25 @@ make test
 make test-functional
 ```
 
+## GitHub Codespaces (Fedora 43)
+
+This repository includes a Fedora 43 devcontainer at `.devcontainer/` with the required tooling for route validation:
+
+- Docker daemon (started automatically on container start)
+- containerlab
+- jq, curl, wget, tcpdump
+- Rust toolchain (`rustc`, `cargo`, `rustfmt`, `clippy`)
+- Make and common Linux networking utilities used by the scripts
+
+After opening in Codespaces and waiting for post-create setup to finish, run:
+
+```bash
+make test-validation-tcpao-proxy-bgp-route-deploy
+make test-validation-tcpao-proxy-bgp-route-validate-only
+```
+
+Note: successful TCP-AO validation still depends on the underlying host kernel supporting TCP-AO.
+
 ## BMP TCP-AO Use Case
 
 This project implements a practical deployment model aligned with `draft-ietf-grow-bmp-tcp-ao-03`: protect the BMP transport leg with TCP-AO while keeping BMP applications operationally simple.
