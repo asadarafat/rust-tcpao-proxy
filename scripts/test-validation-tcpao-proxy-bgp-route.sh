@@ -10,6 +10,7 @@ FORWARD_PLAIN="${FORWARD_PLAIN:-127.0.0.1:11019}"
 MAX_WAIT_SECS="${MAX_WAIT_SECS:-60}"
 ROUTE_PREFIX="${ROUTE_PREFIX:-203.0.113.0/24}"
 ROUTE_NEXTHOP="${ROUTE_NEXTHOP:-192.0.2.1}"
+DEPLOY_LAB="${DEPLOY_LAB:-1}"
 GOBGP_CONFIG_PATH="${GOBGP_CONFIG_PATH:-/tmp/gobgp-bmp-route-validation.conf}"
 GOBGP_LOG_PATH="${GOBGP_LOG_PATH:-/tmp/tcpao-bgp-route-gobgp.log}"
 GOBMP_LOG_PATH="${GOBMP_LOG_PATH:-/tmp/tcpao-bgp-route-gobmp.log}"
@@ -39,9 +40,32 @@ fail() {
   exit 1
 }
 
+is_true() {
+  local v="${1:-}"
+  case "${v,,}" in
+    1|true|yes|y|on)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 require_cmd() {
   local cmd="$1"
   command -v "$cmd" >/dev/null 2>&1 || fail "required command not found: $cmd"
+}
+
+ensure_container_running() {
+  local container="$1"
+  local label="$2"
+  local running=""
+
+  running="$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)"
+  if [[ "$running" != "true" ]]; then
+    fail "$label container is not running: $container (deploy first or rerun with DEPLOY_LAB=1)"
+  fi
 }
 
 is_listening_on_port() {
@@ -499,11 +523,17 @@ main() {
   info "route under test: $ROUTE_PREFIX"
   info "goBMP dump path: $GOBMP_DUMP_PATH"
 
-  step "deploying $TOPOLOGY with --reconfigure"
-  containerlab deploy -t "$TOPOLOGY" --reconfigure
+  if is_true "$DEPLOY_LAB"; then
+    step "deploying $TOPOLOGY with --reconfigure"
+    containerlab deploy -t "$TOPOLOGY" --reconfigure
+  else
+    step "DEPLOY_LAB=$DEPLOY_LAB; skipping deployment and validating existing lab"
+  fi
 
   step "inspecting deployed topology"
   containerlab inspect -t "$TOPOLOGY"
+  ensure_container_running "$init_container" "goBGP-side"
+  ensure_container_running "$term_container" "goBMP-side"
 
   wait_for_listen_port "$init_container" "$plain_port" "goBGP-side proxy"
   wait_for_listen_port "$term_container" "$LISTEN_AO_PORT" "goBMP-side proxy"

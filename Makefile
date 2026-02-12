@@ -1,7 +1,7 @@
 CARGO ?= cargo
 CONFIG ?= config/example.toml
 
-.PHONY: tools doctor fmt lint test test-functional test-functional-strict test-validation-tcpao-proxy test-validation-tcpao-proxy-bgp-route dry-run run-initiator run-terminator
+.PHONY: tools doctor fmt lint test test-functional test-functional-strict test-validation-tcpao-proxy test-validation-tcpao-proxy-bgp-route test-validation-tcpao-proxy-bgp-route-deploy test-validation-tcpao-proxy-bgp-route-validate-only dry-run run-initiator run-terminator
 
 tools:
 	@set -e; \
@@ -41,7 +41,13 @@ test-validation-tcpao-proxy:
 	./scripts/test-validation-tcpao-proxy.sh
 
 test-validation-tcpao-proxy-bgp-route:
-	MAX_WAIT_SECS=$${MAX_WAIT_SECS:-30} JQ_INSTALL_TIMEOUT_SECS=$${JQ_INSTALL_TIMEOUT_SECS:-20} ./scripts/test-validation-tcpao-proxy-bgp-route.sh
+	MAX_WAIT_SECS=$${MAX_WAIT_SECS:-30} JQ_INSTALL_TIMEOUT_SECS=$${JQ_INSTALL_TIMEOUT_SECS:-20} DEPLOY_LAB=1 ./scripts/test-validation-tcpao-proxy-bgp-route.sh
+
+test-validation-tcpao-proxy-bgp-route-deploy:
+	containerlab deploy -t deploy/containerlab/tcpao-bmp.clab.yml --reconfigure
+
+test-validation-tcpao-proxy-bgp-route-validate-only:
+	MAX_WAIT_SECS=$${MAX_WAIT_SECS:-30} JQ_INSTALL_TIMEOUT_SECS=$${JQ_INSTALL_TIMEOUT_SECS:-20} DEPLOY_LAB=0 ./scripts/test-validation-tcpao-proxy-bgp-route.sh
 
 dry-run:
 	$(CARGO) run -- --mode initiator --config $(CONFIG) --dry-run

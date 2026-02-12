@@ -134,15 +134,28 @@ Strict bidirectional data validation (both `from-goBGP-to-goBMP` and `from-goBMP
 REQUIRE_BIDIRECTIONAL_TRAFFIC=1 make test-validation-tcpao-proxy
 ```
 
-Route-based validation via goBGP -> BMP -> goBMP:
+Route-based validation via goBGP -> BMP -> goBMP (deploy + validate):
 
 ```bash
 make test-validation-tcpao-proxy-bgp-route
 ```
 
+Route-based validation only (assumes lab is already deployed/running):
+
+```bash
+make test-validation-tcpao-proxy-bgp-route-validate-only
+```
+
+Route-based deploy only:
+
+```bash
+make test-validation-tcpao-proxy-bgp-route-deploy
+```
+
 Notes:
 
-- This target runs `containerlab deploy -t deploy/containerlab/tcpao-bmp.clab.yml --reconfigure`
+- `make test-validation-tcpao-proxy-bgp-route` runs `containerlab deploy -t deploy/containerlab/tcpao-bmp.clab.yml --reconfigure` before validation
+- `make test-validation-tcpao-proxy-bgp-route-validate-only` skips deployment (`DEPLOY_LAB=0`) and fails fast if clab containers are not running
 - It injects payload through the initiator sidecar and validates AO/traffic evidence in both container logs
 - With `REQUIRE_BIDIRECTIONAL_TRAFFIC=1`, backend mode defaults to `echo` (`BACKEND_MODE=auto`) so reverse-direction bytes are required
 - It also prints goBGP/goBMP runtime config context (sidecar config, app config candidates, and process command lines) from both containers
