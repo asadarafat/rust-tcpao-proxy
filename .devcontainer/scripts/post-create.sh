@@ -11,6 +11,7 @@ jq --version
 tcpdump --version | head -n 1
 containerlab version | head -n 1
 docker --version
+docker compose version || true
 
 if ! docker info >/dev/null 2>&1; then
   echo "[devcontainer] warning: docker daemon is not ready yet; run: bash .devcontainer/scripts/start-docker.sh" >&2
