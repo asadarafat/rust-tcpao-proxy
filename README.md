@@ -35,7 +35,8 @@ If successful, the second command ends with:
 ```
 
 Demo:
-https://github.com/user-attachments/assets/ca14fe7a-12df-4914-8e36-98ea88d9101a
+[Watch the demo](https://github.com/user-attachments/assets/5675eafb-795b-4c20-9555-e88b183670a5)
+
 
 ## What You Just Validated
 
