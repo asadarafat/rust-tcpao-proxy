@@ -2,12 +2,16 @@
 set -euo pipefail
 
 mkdir -p /workspaces/.clab
-bash .devcontainer/scripts/start-docker.sh
+bash .devcontainer/scripts/start-docker.sh || true
 
 echo "[devcontainer] tool check"
-docker --version
-containerlab version | head -n 1
 rustc --version
 cargo --version
 jq --version
 tcpdump --version | head -n 1
+containerlab version | head -n 1
+docker --version
+
+if ! docker info >/dev/null 2>&1; then
+  echo "[devcontainer] warning: docker daemon is not ready yet; run: bash .devcontainer/scripts/start-docker.sh" >&2
+fi
