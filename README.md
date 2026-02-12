@@ -1,3 +1,5 @@
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/asadarafat/rust-tcpao-proxy)
+
 # tcpao-proxy (PoC scaffold)
 
 Rust sidecar proxy scaffold for protecting the wire leg of BMP sessions with TCP-AO.
