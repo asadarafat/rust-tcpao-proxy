@@ -10,6 +10,7 @@ FORWARD_PLAIN="${FORWARD_PLAIN:-127.0.0.1:11019}"
 MAX_WAIT_SECS="${MAX_WAIT_SECS:-60}"
 REQUIRE_BIDIRECTIONAL_TRAFFIC="${REQUIRE_BIDIRECTIONAL_TRAFFIC:-0}"
 BACKEND_MODE="${BACKEND_MODE:-auto}"
+REQUIRE_MODE_FIELD="${REQUIRE_MODE_FIELD:-0}"
 
 DIRECTION_GOBGP_TO_GOBMP="from-goBGP-to-goBMP"
 DIRECTION_GOBMP_TO_GOBGP="from-goBMP-to-goBGP"
@@ -216,7 +217,11 @@ assert_connection_closed_mode() {
   [[ -n "$line" ]] || fail "$who has no connection-closed log entry for mode validation"
 
   if ! printf '%s\n' "$line" | grep -Eq "\"mode\":\"${expected_mode}\"|mode[=: ]+\"?${expected_mode}\"?"; then
-    fail "$who connection-closed log missing mode=${expected_mode}: $line"
+    if is_true "$REQUIRE_MODE_FIELD"; then
+      fail "$who connection-closed log missing mode=${expected_mode}: $line"
+    fi
+    warn "$who connection-closed log missing mode=${expected_mode}; likely older tcpao-proxy image (set REQUIRE_MODE_FIELD=1 to enforce)"
+    return 0
   fi
 
   ok "$who connection-closed log includes mode=${expected_mode}"

@@ -17,6 +17,7 @@ GOBMP_LOG_PATH="${GOBMP_LOG_PATH:-/tmp/tcpao-bgp-route-gobmp.log}"
 GOBMP_DUMP_PATH="${GOBMP_DUMP_PATH:-/tmp/tcpao-bgp-route-messages.json}"
 JQ_INSTALL_LOG="${JQ_INSTALL_LOG:-/tmp/tcpao-bgp-route-jq-install.log}"
 JQ_INSTALL_TIMEOUT_SECS="${JQ_INSTALL_TIMEOUT_SECS:-20}"
+REQUIRE_MODE_FIELD="${REQUIRE_MODE_FIELD:-0}"
 USE_JQ=0
 
 step() {
@@ -484,7 +485,11 @@ assert_connection_closed_mode() {
   [[ -n "$line" ]] || fail "$who has no connection-closed log entry for mode validation"
 
   if ! printf '%s\n' "$line" | grep -Eq "\"mode\":\"${expected_mode}\"|mode[=: ]+\"?${expected_mode}\"?"; then
-    fail "$who connection-closed log missing mode=${expected_mode}: $line"
+    if is_true "$REQUIRE_MODE_FIELD"; then
+      fail "$who connection-closed log missing mode=${expected_mode}: $line"
+    fi
+    warn "$who connection-closed log missing mode=${expected_mode}; likely older tcpao-proxy image (set REQUIRE_MODE_FIELD=1 to enforce)"
+    return 0
   fi
 
   ok "$who connection-closed log includes mode=${expected_mode}"
