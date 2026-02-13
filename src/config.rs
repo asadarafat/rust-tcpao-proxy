@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::net::{IpAddr, SocketAddr};
@@ -61,6 +62,29 @@ impl Config {
 
         for policy in &self.ao_policy {
             let _ = policy.key_source.kind()?;
+        }
+
+        let mut names = HashSet::new();
+        let mut peer_tuples = HashSet::new();
+        for policy in &self.ao_policy {
+            if !names.insert(policy.name.clone()) {
+                return Err(ProxyError::Config(format!(
+                    "duplicate ao_policy name '{}'",
+                    policy.name
+                )));
+            }
+
+            let tuple = (policy.peer_ip, policy.peer_port);
+            if !peer_tuples.insert(tuple) {
+                let port = policy
+                    .peer_port
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|| "*".to_string());
+                return Err(ProxyError::Config(format!(
+                    "duplicate ao_policy peer tuple {}:{}",
+                    policy.peer_ip, port
+                )));
+            }
         }
 
         Ok(())
@@ -221,7 +245,36 @@ fn default_idle_timeout_secs() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
+
+    fn policy(name: &str, peer_ip: &str, peer_port: Option<u16>) -> AoPolicyConfig {
+        AoPolicyConfig {
+            name: name.to_string(),
+            peer_ip: IpAddr::from_str(peer_ip).expect("valid ip"),
+            peer_port,
+            keyid: 1,
+            rnextkeyid: None,
+            mac_alg: "hmac-sha256".to_string(),
+            key_source: KeySource("env:TCPAO_KEY".to_string()),
+        }
+    }
+
+    fn base_config(ao_policy: Vec<AoPolicyConfig>) -> Config {
+        Config {
+            global: GlobalConfig::default(),
+            initiator: Some(InitiatorConfig {
+                listen_plain: "127.0.0.1:5000".to_string(),
+                remote_ao: "127.0.0.1:1790".to_string(),
+            }),
+            terminator: Some(TerminatorConfig {
+                listen_ao: "0.0.0.0:1790".to_string(),
+                forward_plain: "127.0.0.1:11019".to_string(),
+            }),
+            ao_policy,
+        }
+    }
 
     #[test]
     fn key_source_env_is_parsed() {
@@ -236,5 +289,56 @@ mod tests {
     fn key_source_rejects_invalid_prefix() {
         let source = KeySource("vault:secret/path".to_string());
         assert!(source.kind().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_policy_names() {
+        let cfg = base_config(vec![
+            policy("peer-a", "10.0.0.2", Some(1790)),
+            policy("peer-a", "10.0.0.3", Some(1790)),
+        ]);
+
+        let err = cfg
+            .validate(Mode::Initiator)
+            .expect_err("duplicate names must fail");
+        assert!(err.to_string().contains("duplicate ao_policy name"));
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_peer_tuple_with_port() {
+        let cfg = base_config(vec![
+            policy("peer-a", "10.0.0.2", Some(1790)),
+            policy("peer-b", "10.0.0.2", Some(1790)),
+        ]);
+
+        let err = cfg
+            .validate(Mode::Terminator)
+            .expect_err("duplicate tuple must fail");
+        assert!(err.to_string().contains("duplicate ao_policy peer tuple"));
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_peer_tuple_without_port() {
+        let cfg = base_config(vec![
+            policy("peer-a", "10.0.0.2", None),
+            policy("peer-b", "10.0.0.2", None),
+        ]);
+
+        let err = cfg
+            .validate(Mode::Terminator)
+            .expect_err("duplicate tuple must fail");
+        assert!(err.to_string().contains("duplicate ao_policy peer tuple"));
+    }
+
+    #[test]
+    fn validate_accepts_unique_names_and_peer_tuples() {
+        let cfg = base_config(vec![
+            policy("peer-a", "10.0.0.2", Some(1790)),
+            policy("peer-b", "10.0.0.2", None),
+            policy("peer-c", "10.0.0.3", Some(1790)),
+        ]);
+
+        assert!(cfg.validate(Mode::Initiator).is_ok());
+        assert!(cfg.validate(Mode::Terminator).is_ok());
     }
 }

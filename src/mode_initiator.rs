@@ -79,6 +79,8 @@ async fn handle_connection(
         conn_id,
         peer = %plain_peer,
         policy = %policy.name,
+        keyid = policy.keyid,
+        rnextkeyid = ?policy.rnextkeyid,
         bytes_up = stats.bytes_up,
         bytes_down = stats.bytes_down,
         duration_ms = stats.duration.as_millis() as u64,
