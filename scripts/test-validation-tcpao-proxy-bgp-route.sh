@@ -474,6 +474,22 @@ assert_log_absent() {
   ok "$desc not present"
 }
 
+assert_connection_closed_mode() {
+  local logs="$1"
+  local expected_mode="$2"
+  local who="$3"
+  local line=""
+
+  line="$(printf '%s\n' "$logs" | grep -E 'connection closed' | tail -n 1 || true)"
+  [[ -n "$line" ]] || fail "$who has no connection-closed log entry for mode validation"
+
+  if ! printf '%s\n' "$line" | grep -Eq "\"mode\":\"${expected_mode}\"|mode[=: ]+\"?${expected_mode}\"?"; then
+    fail "$who connection-closed log missing mode=${expected_mode}: $line"
+  fi
+
+  ok "$who connection-closed log includes mode=${expected_mode}"
+}
+
 extract_latest_counter() {
   local logs="$1"
   local field="$2"
@@ -555,6 +571,8 @@ main() {
   assert_log_absent "$init_logs" "failed to apply outbound AO policy" "outbound AO failure"
   assert_log_absent "$term_logs" "inbound AO verification failed" "inbound AO verification failure"
   assert_log_absent "$init_logs"$'\n'"$term_logs" "tcp-ao test bypass enabled" "test bypass marker"
+  assert_connection_closed_mode "$init_logs" "initiator" "goBGP-side proxy"
+  assert_connection_closed_mode "$term_logs" "terminator" "goBMP-side proxy"
 
   local init_bytes_up
   local term_bytes_up

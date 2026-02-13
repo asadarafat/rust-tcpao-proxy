@@ -13,6 +13,8 @@ use tracing::{debug, info};
 
 #[cfg(target_os = "linux")]
 const TEST_BYPASS_ENV: &str = "TCPAO_PROXY_TEST_NO_AO";
+#[cfg(target_os = "linux")]
+const TEST_BEST_EFFORT_INBOUND_ENV: &str = "TCPAO_PROXY_TEST_ALLOW_BEST_EFFORT_INBOUND_AO";
 
 #[cfg(target_os = "linux")]
 pub fn probe_tcpao_support() -> io::Result<()> {
@@ -174,20 +176,12 @@ pub fn ensure_inbound_session_has_ao(socket_fd: RawFd, peer: SocketAddr) -> io::
     let info = match get_ao_info(socket_fd) {
         Ok(info) => info,
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
-            debug!(
-                peer = %peer,
-                "tcp-ao session info unavailable (ENOENT); continuing with best-effort verification"
-            );
-            return Ok(());
+            return handle_missing_inbound_ao_info(peer, err);
         }
         Err(err) => return Err(err),
     };
-    if info.ao_required() == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "tcp-ao not required on inbound session",
-        ));
-    }
+
+    ensure_ao_required(info)?;
 
     debug!(peer = %peer, "verified inbound tcp-ao session state");
     Ok(())
@@ -215,10 +209,56 @@ fn allow_test_bypass() -> bool {
         return false;
     }
 
+    env_var_true(TEST_BYPASS_ENV)
+}
+
+#[cfg(target_os = "linux")]
+fn allow_best_effort_inbound_ao() -> bool {
+    if !cfg!(debug_assertions) {
+        return false;
+    }
+
+    env_var_true(TEST_BEST_EFFORT_INBOUND_ENV)
+}
+
+#[cfg(target_os = "linux")]
+fn env_var_true(name: &str) -> bool {
     matches!(
-        std::env::var(TEST_BYPASS_ENV).as_deref(),
-        Ok("1") | Ok("true") | Ok("TRUE")
+        std::env::var(name).as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
     )
+}
+
+#[cfg(target_os = "linux")]
+fn handle_missing_inbound_ao_info(peer: SocketAddr, err: io::Error) -> io::Result<()> {
+    if allow_best_effort_inbound_ao() {
+        debug!(
+            env = TEST_BEST_EFFORT_INBOUND_ENV,
+            peer = %peer,
+            "tcp-ao session info unavailable (ENOENT); allowing best-effort inbound verification in debug/test mode"
+        );
+        return Ok(());
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!(
+            "tcp-ao session info unavailable for peer {peer}: {err}; \
+set {TEST_BEST_EFFORT_INBOUND_ENV}=1 only for debug/test best-effort mode"
+        ),
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn ensure_ao_required(info: net::tcp_ao_info_opt) -> io::Result<()> {
+    if info.ao_required() == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "tcp-ao not required on inbound session",
+        ));
+    }
+
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -454,7 +494,40 @@ fn prefix_len_for_ip(ip: IpAddr) -> u8 {
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
+    use std::sync::{Mutex, OnceLock};
+
     use super::*;
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct ScopedEnvVar {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl ScopedEnvVar {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let previous = std::env::var(key).ok();
+            match value {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for ScopedEnvVar {
+        fn drop(&mut self) {
+            if let Some(v) = &self.previous {
+                std::env::set_var(self.key, v);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
 
     #[test]
     fn normalize_mac_alg_maps_known_values() {
@@ -480,5 +553,47 @@ mod tests {
     fn prefix_len_allows_unspecified_wildcard() {
         assert_eq!(prefix_len_for_ip("0.0.0.0".parse().expect("valid ip")), 0);
         assert_eq!(prefix_len_for_ip("::".parse().expect("valid ip")), 0);
+    }
+
+    #[test]
+    fn missing_inbound_ao_info_fails_in_strict_mode() {
+        let _guard = env_lock().lock().expect("env lock");
+        let _best_effort = ScopedEnvVar::set(TEST_BEST_EFFORT_INBOUND_ENV, None);
+
+        let peer: SocketAddr = "10.0.0.2:1790".parse().expect("valid peer");
+        let err =
+            handle_missing_inbound_ao_info(peer, io::Error::new(io::ErrorKind::NotFound, "ENOENT"))
+                .expect_err("strict mode should fail");
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        assert!(err
+            .to_string()
+            .contains("tcp-ao session info unavailable for peer"));
+    }
+
+    #[test]
+    fn missing_inbound_ao_info_allows_best_effort_when_enabled() {
+        let _guard = env_lock().lock().expect("env lock");
+        let _best_effort = ScopedEnvVar::set(TEST_BEST_EFFORT_INBOUND_ENV, Some("1"));
+
+        let peer: SocketAddr = "10.0.0.2:1790".parse().expect("valid peer");
+        assert!(handle_missing_inbound_ao_info(
+            peer,
+            io::Error::new(io::ErrorKind::NotFound, "ENOENT"),
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn ensure_ao_required_rejects_zero_flag() {
+        let info: net::tcp_ao_info_opt = unsafe { mem::zeroed() };
+        let err = ensure_ao_required(info).expect_err("ao_required=0 should fail");
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[test]
+    fn ensure_ao_required_accepts_nonzero_flag() {
+        let mut info: net::tcp_ao_info_opt = unsafe { mem::zeroed() };
+        info.set_ao_required(1);
+        assert!(ensure_ao_required(info).is_ok());
     }
 }

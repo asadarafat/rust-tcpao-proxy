@@ -12,6 +12,7 @@ use crate::forward::{pump, PumpOptions};
 use crate::tcpao::{linux, policy};
 
 static CONN_ID: AtomicU64 = AtomicU64::new(1);
+const MODE_LABEL: &str = "terminator";
 
 pub async fn run(cfg: Config) -> Result<()> {
     let terminator = cfg
@@ -47,7 +48,15 @@ pub async fn run(cfg: Config) -> Result<()> {
             .await
             {
                 Ok(()) => {}
-                Err(err) => error!(conn_id, peer = %wire_peer, error = %err, "connection failed"),
+                Err(err) => {
+                    error!(
+                        mode = MODE_LABEL,
+                        conn_id,
+                        peer = %wire_peer,
+                        error = %err,
+                        "connection failed"
+                    )
+                }
             }
         });
     }
@@ -88,6 +97,7 @@ async fn handle_connection(
     .await?;
 
     info!(
+        mode = MODE_LABEL,
         conn_id,
         peer = %wire_peer,
         policy = %policy.name,
